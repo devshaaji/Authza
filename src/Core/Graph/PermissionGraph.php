@@ -7,71 +7,152 @@ namespace Authza\Core\Graph;
 use Psr\SimpleCache\CacheInterface;
 
 /**
- * Permission graph for precomputed permissions
+ * PermissionGraph manages precomputed permission lookups for fast authorization checks
  */
 class PermissionGraph
 {
-    private array $graph = [];
+    private const CACHE_KEY = 'authz:graph:v1';
+    private const CACHE_TTL = 3600;
+
     private ?CacheInterface $cache;
 
+    /**
+     * @var array<string, bool>
+     */
+    private array $permissions = [];
+
+    /**
+     * Create a new permission graph
+     *
+     * @param CacheInterface|null $cache Optional cache for storing the graph
+     */
     public function __construct(?CacheInterface $cache = null)
     {
         $this->cache = $cache;
+        $this->loadFromCache();
     }
 
     /**
-     * Add a permission to the graph
+     * Precompute and store permissions in the graph
      *
-     * @param string $subject Subject identifier (e.g., "role:admin", "user:123")
-     * @param string $resource Resource identifier (e.g., "invoice", "invoice:123")
-     * @param string $action Action to perform (e.g., "create", "edit", "view")
-     * @param string|null $condition Optional condition (e.g., "owner", "department==finance")
+     * @param array<array{subjectId: string|int, action: string, resourceType: string, resourceId: string|int, allowed: bool}> $permissions
+     * @return void
      */
-    public function addPermission(string $subject, string $resource, string $action, ?string $condition = null): void
+    public function precompute(array $permissions): void
     {
-        $key = $this->makeKey($subject, $resource, $action);
-        
-        if (!isset($this->graph[$key])) {
-            $this->graph[$key] = [];
+        $this->permissions = [];
+
+        foreach ($permissions as $permission) {
+            $key = $this->makeKey(
+                (string)$permission['subjectId'],
+                $permission['action'],
+                $permission['resourceType'],
+                (string)$permission['resourceId']
+            );
+
+            $this->permissions[$key] = $permission['allowed'];
         }
-        
-        $this->graph[$key][] = [
-            'subject' => $subject,
-            'resource' => $resource,
-            'action' => $action,
-            'condition' => $condition,
-        ];
+
+        $this->saveToCache();
     }
 
     /**
-     * Check if a permission exists in the graph
+     * Check if a permission exists in the precomputed graph
      *
-     * @param string $subject Subject identifier
-     * @param string $resource Resource identifier
-     * @param string $action Action to perform
-     * @param array $context Optional context for condition evaluation
-     * @return bool
+     * @param string $subjectId Subject identifier
+     * @param string $action Action being performed
+     * @param string $resourceType Resource type
+     * @param string $resourceId Resource identifier
+     * @return bool|null True if allowed, false if denied, null if not found
      */
-    public function hasPermission(string $subject, string $resource, string $action, array $context = []): bool
+    public function check(string $subjectId, string $action, string $resourceType, string $resourceId): ?bool
     {
-        $key = $this->makeKey($subject, $resource, $action);
+        $key = $this->makeKey($subjectId, $action, $resourceType, $resourceId);
         
-        if (!isset($this->graph[$key])) {
-            // Try wildcard matching
-            return $this->checkWildcardPermissions($subject, $resource, $action, $context);
+        if (!isset($this->permissions[$key])) {
+            return null;
         }
-        
-        foreach ($this->graph[$key] as $permission) {
-            if ($this->evaluateCondition($permission['condition'], $context)) {
-                return true;
+
+        return $this->permissions[$key];
+    }
+
+    /**
+     * Invalidate the permission graph cache
+     *
+     * @param string|null $subjectId Optional subject ID to invalidate specific entries
+     * @return void
+     */
+    public function invalidate(?string $subjectId = null): void
+    {
+        if ($subjectId === null) {
+            // Clear entire graph
+            $this->permissions = [];
+            
+            if ($this->cache !== null) {
+                $this->cache->delete(self::CACHE_KEY);
             }
+        } else {
+            // Remove entries for specific subject
+            foreach (array_keys($this->permissions) as $key) {
+                if (str_starts_with($key, $subjectId . ':')) {
+                    unset($this->permissions[$key]);
+                }
+            }
+            
+            $this->saveToCache();
         }
-        
-        return false;
     }
 
     /**
-     * Build graph from DSL rules
+     * Make a cache key for a permission
+     *
+     * @param string $subjectId Subject identifier
+     * @param string $action Action
+     * @param string $resourceType Resource type
+     * @param string $resourceId Resource identifier
+     * @return string Cache key
+     */
+    private function makeKey(string $subjectId, string $action, string $resourceType, string $resourceId): string
+    {
+        return "{$subjectId}:{$action}:{$resourceType}:{$resourceId}";
+    }
+
+    /**
+     * Load the graph from cache
+     *
+     * @return void
+     */
+    private function loadFromCache(): void
+    {
+        if ($this->cache === null) {
+            return;
+        }
+
+        $cached = $this->cache->get(self::CACHE_KEY);
+        
+        if (is_array($cached)) {
+            $this->permissions = $cached;
+        }
+    }
+
+    /**
+     * Save the graph to cache
+     *
+     * @return void
+     */
+    private function saveToCache(): void
+    {
+        if ($this->cache === null) {
+            return;
+        }
+
+        $this->cache->set(self::CACHE_KEY, $this->permissions, self::CACHE_TTL);
+    }
+
+    /**
+     * Precompute permissions from DSL rules (for DSL support)
+     * 
+     * DSL rules format: [['subject' => 'role:admin', 'resource' => 'invoice', 'action' => 'create', 'condition' => null], ...]
      *
      * @param array $dslRules Array of DSL rule arrays
      * @return void
@@ -79,134 +160,26 @@ class PermissionGraph
     public function precomputeFromDsl(array $dslRules): void
     {
         foreach ($dslRules as $rule) {
-            $this->addPermission(
-                $rule['subject'],
-                $rule['resource'],
-                $rule['action'],
-                $rule['condition'] ?? null
-            );
-        }
-    }
-
-    /**
-     * Get all permissions in the graph
-     *
-     * @return array
-     */
-    public function getAllPermissions(): array
-    {
-        $permissions = [];
-        
-        foreach ($this->graph as $entries) {
-            foreach ($entries as $entry) {
-                $permissions[] = $entry;
-            }
+            // For DSL support, we treat the permission as "allowed" by default
+            // DSL format uses subject:resource:action format where subject is like "role:admin" or "user:123"
+            // We need to map this to the Authorization Engine format
+            $subject = $rule['subject'];
+            $resource = $rule['resource'];
+            $action = $rule['action'];
+            
+            // Extract subject ID from DSL format (e.g., "role:admin" -> "admin", "user:123" -> "123")
+            $subjectParts = explode(':', $subject, 2);
+            $subjectId = $subjectParts[1] ?? $subject;
+            
+            // Extract resource type and ID (e.g., "invoice:123" -> type:"invoice", id:"123")
+            $resourceParts = explode(':', $resource, 2);
+            $resourceType = $resourceParts[0];
+            $resourceId = $resourceParts[1] ?? '*'; // Use * as wildcard for resource type
+            
+            $key = $this->makeKey($subjectId, $action, $resourceType, $resourceId);
+            $this->permissions[$key] = true; // DSL permissions are allow-only
         }
         
-        return $permissions;
-    }
-
-    /**
-     * Clear all permissions from the graph
-     */
-    public function clear(): void
-    {
-        $this->graph = [];
-        if ($this->cache) {
-            $this->cache->clear();
-        }
-    }
-
-    /**
-     * Make a cache key from subject, resource, and action
-     */
-    private function makeKey(string $subject, string $resource, string $action): string
-    {
-        return "{$subject}:{$resource}:{$action}";
-    }
-
-    /**
-     * Check permissions with wildcard matching
-     */
-    private function checkWildcardPermissions(string $subject, string $resource, string $action, array $context): bool
-    {
-        // Extract subject type and ID
-        $subjectParts = explode(':', $subject, 2);
-        $subjectType = $subjectParts[0] ?? '';
-        
-        // Check for wildcard subject (e.g., user:*)
-        $wildcardSubject = "{$subjectType}:*";
-        $wildcardKey = $this->makeKey($wildcardSubject, $resource, $action);
-        
-        if (isset($this->graph[$wildcardKey])) {
-            foreach ($this->graph[$wildcardKey] as $permission) {
-                if ($this->evaluateCondition($permission['condition'], $context)) {
-                    return true;
-                }
-            }
-        }
-        
-        // Check for wildcard resource (e.g., invoice:*)
-        $resourceParts = explode(':', $resource, 2);
-        $resourceType = $resourceParts[0] ?? '';
-        $wildcardResource = "{$resourceType}:*";
-        
-        $wildcardResourceKey = $this->makeKey($subject, $wildcardResource, $action);
-        
-        if (isset($this->graph[$wildcardResourceKey])) {
-            foreach ($this->graph[$wildcardResourceKey] as $permission) {
-                if ($this->evaluateCondition($permission['condition'], $context)) {
-                    return true;
-                }
-            }
-        }
-        
-        // Also check resource type without ID (e.g., "invoice" when checking "invoice:123")
-        if (isset($resourceParts[1])) {
-            $resourceTypeKey = $this->makeKey($subject, $resourceType, $action);
-            if (isset($this->graph[$resourceTypeKey])) {
-                foreach ($this->graph[$resourceTypeKey] as $permission) {
-                    if ($this->evaluateCondition($permission['condition'], $context)) {
-                        return true;
-                    }
-                }
-            }
-        }
-        
-        return false;
-    }
-
-    /**
-     * Evaluate a condition against context
-     */
-    private function evaluateCondition(?string $condition, array $context): bool
-    {
-        if ($condition === null) {
-            return true;
-        }
-        
-        // Handle "owner" condition
-        if ($condition === 'owner') {
-            return isset($context['is_owner']) && $context['is_owner'] === true;
-        }
-        
-        // Handle equality conditions (e.g., department==finance)
-        if (strpos($condition, '==') !== false) {
-            [$key, $value] = explode('==', $condition, 2);
-            $key = trim($key);
-            $value = trim($value);
-            return isset($context[$key]) && $context[$key] === $value;
-        }
-        
-        // Handle inequality conditions (e.g., status!=paid)
-        if (strpos($condition, '!=') !== false) {
-            [$key, $value] = explode('!=', $condition, 2);
-            $key = trim($key);
-            $value = trim($value);
-            return !isset($context[$key]) || $context[$key] !== $value;
-        }
-        
-        // Unknown condition format - default to false for safety
-        return false;
+        $this->saveToCache();
     }
 }

@@ -5,27 +5,37 @@ declare(strict_types=1);
 namespace Authza\Adapters\Cache;
 
 use Psr\SimpleCache\CacheInterface;
+use Redis;
 
 /**
- * ArrayCache is a PSR-16 compliant in-memory cache implementation
+ * RedisCache is a PSR-16 compliant Redis cache adapter
  */
-class ArrayCache implements CacheInterface
+class RedisCache implements CacheInterface
 {
+    private Redis $redis;
+
     /**
-     * @var array<string, array{value: mixed, expiry: int|null}>
+     * Create a new Redis cache instance
+     *
+     * @param Redis $redis Redis instance
      */
-    private array $cache = [];
+    public function __construct(Redis $redis)
+    {
+        $this->redis = $redis;
+    }
 
     /**
      * @inheritDoc
      */
     public function get(string $key, mixed $default = null): mixed
     {
-        if (!$this->has($key)) {
+        $value = $this->redis->get($key);
+
+        if ($value === false) {
             return $default;
         }
 
-        return $this->cache[$key]['value'];
+        return unserialize($value);
     }
 
     /**
@@ -33,20 +43,26 @@ class ArrayCache implements CacheInterface
      */
     public function set(string $key, mixed $value, null|int|\DateInterval $ttl = null): bool
     {
-        $expiry = null;
-        
-        if ($ttl instanceof \DateInterval) {
-            $expiry = (new \DateTime())->add($ttl)->getTimestamp();
-        } elseif (is_int($ttl) && $ttl > 0) {
-            $expiry = time() + $ttl;
+        $serialized = serialize($value);
+
+        if ($ttl === null) {
+            return $this->redis->set($key, $serialized);
         }
 
-        $this->cache[$key] = [
-            'value' => $value,
-            'expiry' => $expiry,
-        ];
+        $seconds = 0;
+        if ($ttl instanceof \DateInterval) {
+            $now = new \DateTime();
+            $expires = (new \DateTime())->add($ttl);
+            $seconds = $expires->getTimestamp() - $now->getTimestamp();
+        } elseif (is_int($ttl)) {
+            $seconds = $ttl;
+        }
 
-        return true;
+        if ($seconds > 0) {
+            return $this->redis->setex($key, $seconds, $serialized);
+        }
+
+        return $this->redis->set($key, $serialized);
     }
 
     /**
@@ -54,8 +70,7 @@ class ArrayCache implements CacheInterface
      */
     public function delete(string $key): bool
     {
-        unset($this->cache[$key]);
-        return true;
+        return $this->redis->del($key) > 0;
     }
 
     /**
@@ -63,8 +78,7 @@ class ArrayCache implements CacheInterface
      */
     public function clear(): bool
     {
-        $this->cache = [];
-        return true;
+        return $this->redis->flushDB();
     }
 
     /**
@@ -85,7 +99,9 @@ class ArrayCache implements CacheInterface
     public function setMultiple(iterable $values, null|int|\DateInterval $ttl = null): bool
     {
         foreach ($values as $key => $value) {
-            $this->set($key, $value, $ttl);
+            if (!$this->set($key, $value, $ttl)) {
+                return false;
+            }
         }
         return true;
     }
@@ -96,7 +112,9 @@ class ArrayCache implements CacheInterface
     public function deleteMultiple(iterable $keys): bool
     {
         foreach ($keys as $key) {
-            $this->delete($key);
+            if (!$this->delete($key)) {
+                return false;
+            }
         }
         return true;
     }
@@ -106,16 +124,6 @@ class ArrayCache implements CacheInterface
      */
     public function has(string $key): bool
     {
-        if (!isset($this->cache[$key])) {
-            return false;
-        }
-
-        $expiry = $this->cache[$key]['expiry'];
-        if ($expiry !== null && $expiry < time()) {
-            unset($this->cache[$key]);
-            return false;
-        }
-
-        return true;
+        return $this->redis->exists($key) > 0;
     }
 }
