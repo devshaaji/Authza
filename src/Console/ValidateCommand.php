@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Authza\Console;
 
 use Authza\Console\Helpers\OutputHelper;
+use Authza\Exceptions\DslParseException;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -59,27 +60,39 @@ class ValidateCommand extends Command
         $strict = $input->getOption('strict');
 
         try {
-            $parser = $this->container->getDSLParser();
-            $rules = $parser->parseFile($file, $format);
+            // Detect parser
+            $parser = $this->detectParser($file, $format);
+            
+            // Read file content
+            if (!file_exists($file)) {
+                throw new DslParseException("File not found: {$file}");
+            }
+            
+            $content = file_get_contents($file);
+            if ($content === false) {
+                throw new DslParseException("Failed to read file: {$file}");
+            }
 
-            $validation = $parser->validate($rules);
+            // Validate
+            $validator = $this->container->getDslValidator();
+            $validation = $validator->validate($parser, $content);
 
-            if (!empty($validation['errors'])) {
+            if (!$validation->isValid()) {
                 $helper->error('Validation errors:');
-                foreach ($validation['errors'] as $error) {
+                foreach ($validation->getErrors() as $error) {
                     $output->writeln("  <fg=red>{$error}</>");
                 }
             }
 
-            if (!empty($validation['warnings'])) {
+            if ($validation->hasWarnings()) {
                 $label = $strict ? 'Validation errors' : 'Validation warnings';
                 $helper->warning($label . ':');
-                foreach ($validation['warnings'] as $warning) {
+                foreach ($validation->getWarnings() as $warning) {
                     $output->writeln("  <fg=yellow>{$warning}</>");
                 }
             }
 
-            $isValid = $validation['valid'] && (!$strict || empty($validation['warnings']));
+            $isValid = $validation->isValid() && (!$strict || !$validation->hasWarnings());
 
             if ($isValid) {
                 $helper->success('Valid');
@@ -89,14 +102,37 @@ class ValidateCommand extends Command
 
             $output->writeln(sprintf(
                 'Summary: %d error(s), %d warning(s)',
-                count($validation['errors']),
-                count($validation['warnings'])
+                count($validation->getErrors()),
+                count($validation->getWarnings())
             ));
 
             return $isValid ? Command::SUCCESS : Command::FAILURE;
+        } catch (DslParseException $e) {
+            $helper->error('Validation failed: ' . $e->getMessage());
+            return Command::FAILURE;
         } catch (\Exception $e) {
             $helper->error('Validation failed: ' . $e->getMessage());
             return Command::FAILURE;
         }
+    }
+
+    private function detectParser(string $file, ?string $format)
+    {
+        if ($format === 'json') {
+            return $this->container->getJsonParser();
+        }
+        
+        if ($format === 'line') {
+            return $this->container->getLineParser();
+        }
+
+        // Auto-detect from extension
+        $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+        if ($ext === 'json') {
+            return $this->container->getJsonParser();
+        }
+
+        // Default to line parser
+        return $this->container->getLineParser();
     }
 }

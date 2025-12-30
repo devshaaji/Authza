@@ -4,19 +4,29 @@ declare(strict_types=1);
 
 namespace Authza\Console;
 
-use Authza\Authorization;
-use Authza\Graph\PermissionGraph;
-use Authza\DSL\DSLParser;
+use Authza\Adapters\Cache\ArrayCache;
+use Authza\Core\Authorization;
+use Authza\Core\Graph\PermissionGraph;
+use Authza\Core\PolicyRegistry;
+use Authza\DSL\DslImporter;
+use Authza\DSL\DslValidator;
+use Authza\DSL\JsonDslParser;
+use Authza\DSL\LineDslParser;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Psr\SimpleCache\CacheInterface;
 
 class ServiceContainer
 {
     private ConsoleConfig $config;
     private ?Authorization $authorization = null;
     private ?PermissionGraph $permissionGraph = null;
-    private ?DSLParser $dslParser = null;
+    private ?CacheInterface $cache = null;
     private ?LoggerInterface $logger = null;
+    private ?DslImporter $dslImporter = null;
+    private ?DslValidator $dslValidator = null;
+    private ?JsonDslParser $jsonParser = null;
+    private ?LineDslParser $lineParser = null;
 
     public function __construct(ConsoleConfig $config)
     {
@@ -26,9 +36,13 @@ class ServiceContainer
     public function getAuthorization(): Authorization
     {
         if ($this->authorization === null) {
+            $registry = new PolicyRegistry();
+            
             $this->authorization = new Authorization(
-                null,
-                $this->getLogger()
+                $registry,
+                $this->getCache(),
+                $this->getLogger(),
+                $this->getPermissionGraph()
             );
         }
 
@@ -38,28 +52,55 @@ class ServiceContainer
     public function getPermissionGraph(): PermissionGraph
     {
         if ($this->permissionGraph === null) {
-            $storagePath = $this->config->get('graph.storage');
-            if (!$storagePath) {
-                $storagePath = sys_get_temp_dir() . '/authza_graph.json';
-            }
-
-            $this->permissionGraph = new PermissionGraph(
-                null,
-                $this->getLogger(),
-                $storagePath
-            );
+            $this->permissionGraph = new PermissionGraph($this->getCache());
         }
 
         return $this->permissionGraph;
     }
 
-    public function getDSLParser(): DSLParser
+    public function getCache(): CacheInterface
     {
-        if ($this->dslParser === null) {
-            $this->dslParser = new DSLParser();
+        if ($this->cache === null) {
+            $this->cache = new ArrayCache();
         }
 
-        return $this->dslParser;
+        return $this->cache;
+    }
+
+    public function getDslImporter(): DslImporter
+    {
+        if ($this->dslImporter === null) {
+            $this->dslImporter = new DslImporter($this->getPermissionGraph());
+        }
+
+        return $this->dslImporter;
+    }
+
+    public function getDslValidator(): DslValidator
+    {
+        if ($this->dslValidator === null) {
+            $this->dslValidator = new DslValidator();
+        }
+
+        return $this->dslValidator;
+    }
+
+    public function getJsonParser(): JsonDslParser
+    {
+        if ($this->jsonParser === null) {
+            $this->jsonParser = new JsonDslParser();
+        }
+
+        return $this->jsonParser;
+    }
+
+    public function getLineParser(): LineDslParser
+    {
+        if ($this->lineParser === null) {
+            $this->lineParser = new LineDslParser();
+        }
+
+        return $this->lineParser;
     }
 
     public function getLogger(): LoggerInterface

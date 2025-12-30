@@ -3,19 +3,6 @@
 
 declare(strict_types=1);
 
-use Authza\Console\ServiceContainer;
-use Authza\Console\ConsoleConfig;
-use Authza\Console\ImportCommand;
-use Authza\Console\ExportCommand;
-use Authza\Console\ValidateCommand;
-use Authza\Console\GraphBuildCommand;
-use Authza\Console\GraphInvalidateCommand;
-use Authza\Console\CacheClearCommand;
-use Authza\Console\CheckCommand;
-use Authza\Console\ListCommand;
-use Authza\Console\StatsCommand;
-use Symfony\Component\Console\Application;
-
 $autoloadFiles = [
     __DIR__ . '/../vendor/autoload.php',
     __DIR__ . '/../../../autoload.php',
@@ -42,10 +29,10 @@ if (!$autoloaded) {
 try {
     $configPath = getcwd() . '/authza_config.php';
     $config = file_exists($configPath)
-        ? ConsoleConfig::fromFile($configPath)
-        : new ConsoleConfig();
+        ? \Authza\Console\ConsoleConfig::fromFile($configPath)
+        : new \Authza\Console\ConsoleConfig();
 
-    $container = new ServiceContainer($config);
+    $container = new \Authza\Console\ServiceContainer($config);
 
     $composerJson = json_decode(
         file_get_contents(__DIR__ . '/../composer.json'),
@@ -53,17 +40,17 @@ try {
     );
     $version = $composerJson['version'] ?? 'dev-main';
 
-    $application = new Application('Authza CLI', $version);
+    $application = new \Symfony\Component\Console\Application('Authza CLI', $version);
 
-    $application->add(new ImportCommand($container));
-    $application->add(new ExportCommand($container));
-    $application->add(new ValidateCommand($container));
-    $application->add(new GraphBuildCommand($container));
-    $application->add(new GraphInvalidateCommand($container));
-    $application->add(new CacheClearCommand($container));
-    $application->add(new CheckCommand($container));
-    $application->add(new ListCommand($container));
-    $application->add(new StatsCommand($container));
+    $application->add(new \Authza\Console\ImportCommand($container));
+    $application->add(new \Authza\Console\ExportCommand($container));
+    $application->add(new \Authza\Console\ValidateCommand($container));
+    $application->add(new \Authza\Console\GraphBuildCommand($container));
+    $application->add(new \Authza\Console\GraphInvalidateCommand($container));
+    $application->add(new \Authza\Console\CacheClearCommand($container));
+    $application->add(new \Authza\Console\CheckCommand($container));
+    $application->add(new \Authza\Console\ListCommand($container));
+    $application->add(new \Authza\Console\StatsCommand($container));
 
     $application->run();
 } catch (Exception $e) {
