@@ -1,15 +1,23 @@
 {
     "name": "authza/authza",
-    "description": "A modern, plug-and-play authorization engine for PHP with precomputed permission graphs, PSR-compliant caching and logging",
+    "description": "A modern, plug-and-play authorization engine for PHP with precomputed permission graphs, PSR-compliant caching, logging, and DSL support",
     "type": "library",
     "license": "MIT",
+    "keywords": ["authorization", "rbac", "abac", "permissions", "dsl", "policy"],
+    "authors": [
+        {
+            "name": "Shaaji Alfred",
+            "email": "dev.shaaji@gmail.com"
+        }
+    ],
     "require": {
         "php": "^8.0",
         "psr/simple-cache": "^3.0",
         "psr/log": "^3.0"
     },
     "require-dev": {
-        "phpunit/phpunit": "^9.5"
+        "phpunit/phpunit": "^9.5",
+        "symfony/yaml": "^5.0|^6.0|^7.0"
     },
     "autoload": {
         "psr-4": {
@@ -20,5 +28,15 @@
         "psr-4": {
             "Authza\\Tests\\": "tests/"
         }
-    }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test-coverage": "phpunit --coverage-html coverage"
+    },
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
 }

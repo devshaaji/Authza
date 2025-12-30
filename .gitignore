@@ -1,4 +1,27 @@
+# Dependencies
 /vendor/
-/cache/
+
+# Composer
 composer.lock
+composer.phar
+
+# PHPUnit
 .phpunit.result.cache
+/coverage/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+/tmp/
+/cache/
+*.tmp
+*.log

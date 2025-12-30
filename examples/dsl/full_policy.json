@@ -1,0 +1,50 @@
+[
+  {
+    "subject": "role:admin",
+    "resource": "invoice",
+    "action": "create"
+  },
+  {
+    "subject": "role:admin",
+    "resource": "invoice",
+    "action": "edit"
+  },
+  {
+    "subject": "role:admin",
+    "resource": "invoice",
+    "action": "delete"
+  },
+  {
+    "subject": "role:admin",
+    "resource": "invoice",
+    "action": "view"
+  },
+  {
+    "subject": "role:accountant",
+    "resource": "invoice",
+    "action": "view"
+  },
+  {
+    "subject": "role:accountant",
+    "resource": "invoice",
+    "action": "edit"
+  },
+  {
+    "subject": "user:42",
+    "resource": "invoice:123",
+    "action": "delete",
+    "condition": "owner"
+  },
+  {
+    "subject": "role:manager",
+    "resource": "invoice",
+    "action": "approve",
+    "condition": "department==finance"
+  },
+  {
+    "subject": "user:*",
+    "resource": "invoice",
+    "action": "edit",
+    "condition": "owner"
+  }
+]
