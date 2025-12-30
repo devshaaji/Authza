@@ -35,7 +35,7 @@ class JsonDslParser implements DslParserInterface
             );
         }
         
-        if (!is_array($data)) {
+        if (!is_array($data) || !array_is_list($data)) {
             throw new DslParseException(
                 "Invalid JSON structure: Expected array of permission rules"
             );
