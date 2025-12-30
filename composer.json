@@ -34,18 +34,13 @@
             "Authza\\Tests\\": "tests/"
         }
     },
-    "bin": [
-        "bin/authz"
-    ],
     "scripts": {
         "test": "phpunit",
-        "cs-check": "phpcs --standard=PSR12 src/ tests/",
-        "cs-fix": "phpcbf --standard=PSR12 src/ tests/"
+        "test-coverage": "phpunit --coverage-html coverage"
     },
     "config": {
         "sort-packages": true,
-        "optimize-autoloader": true,
-        "preferred-install": "dist"
+        "optimize-autoloader": true
     },
     "minimum-stability": "stable",
     "prefer-stable": true
