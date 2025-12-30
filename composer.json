@@ -1,0 +1,42 @@
+{
+    "name": "authza/authza",
+    "description": "Modern PHP Authorization Engine with DSL Support",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["authorization", "rbac", "abac", "permissions", "dsl", "policy"],
+    "authors": [
+        {
+            "name": "Shaaji Alfred",
+            "email": "dev.shaaji@gmail.com"
+        }
+    ],
+    "require": {
+        "php": ">=8.0",
+        "psr/simple-cache": "^1.0|^2.0|^3.0",
+        "psr/log": "^1.0|^2.0|^3.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.0|^10.0",
+        "symfony/yaml": "^5.0|^6.0|^7.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Authza\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Authza\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test-coverage": "phpunit --coverage-html coverage"
+    },
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
