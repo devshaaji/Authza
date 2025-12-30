@@ -1,4 +1,4 @@
-# Dependencies
+# Composer
 /vendor/
 
 # Composer
@@ -6,22 +6,35 @@ composer.lock
 composer.phar
 
 # PHPUnit
-.phpunit.result.cache
+/phpunit.xml
+/.phpunit.cache
+/phpunit.result.cache
+/.phpunit.result.cache
+
+# Coverage
 /coverage/
+/clover.xml
 
 # IDE
-.idea/
-.vscode/
+/.idea/
+/.vscode/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
-Thumbs.db
 
-# Temporary files
-/tmp/
+# Cache and temporary files
 /cache/
-*.tmp
+/storage/
+/tmp/
+*.cache
 *.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+/build/
+/dist/
