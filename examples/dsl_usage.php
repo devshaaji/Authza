@@ -5,14 +5,14 @@ declare(strict_types=1);
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use Authza\Core\Graph\PermissionGraph;
+use Authza\Core\Authorization;
 use Authza\DSL\LineDslParser;
 use Authza\DSL\JsonDslParser;
 use Authza\DSL\DslImporter;
 use Authza\DSL\DslValidator;
-use Authza\DSL\DslExporter;
 use Authza\Adapters\Cache\ArrayCache;
 
-echo "=== Authza DSL Usage Example ===\n\n";
+echo "=== Authza DSL Usage Example (Integrated with Authorization Engine) ===\n\n";
 
 // Initialize
 $cache = new ArrayCache();
@@ -44,13 +44,8 @@ $importer = new DslImporter($graph);
 $count = $importer->importFromFile(__DIR__ . '/dsl/rbac_rules.dsl');
 echo "  ✓ Imported $count RBAC rules\n\n";
 
-// Example 2: Import ownership rules
-echo "2. Importing ownership rules...\n";
-$count = $importer->importFromFile(__DIR__ . '/dsl/ownership_rules.dsl');
-echo "  ✓ Imported $count ownership rules\n\n";
-
-// Example 3: Import JSON policy
-echo "3. Importing JSON policy file...\n";
+// Example 2: Import JSON policy
+echo "2. Importing JSON policy file...\n";
 $jsonValidator = new DslValidator();
 $jsonContent = file_get_contents(__DIR__ . '/dsl/full_policy.json');
 $jsonParser = new JsonDslParser();
@@ -66,71 +61,44 @@ if ($jsonResult->isValid()) {
     }
 }
 
-// Example 4: Test permissions
-echo "4. Testing permissions...\n";
+// Example 3: Test permissions using main's Authorization Engine API
+echo "3. Testing permissions using PermissionGraph...\n";
 
-// Test admin can create invoice
-$hasPermission = $graph->hasPermission('role:admin', 'invoice', 'create');
-echo "  - role:admin can create invoice: " . ($hasPermission ? '✓ YES' : '✗ NO') . "\n";
+// DSL rule: "role:admin, invoice, create" becomes check('admin', 'create', 'invoice', '*')
+$hasPermission = $graph->check('admin', 'create', 'invoice', '*');
+echo "  - admin can create invoice: " . ($hasPermission ? '✓ YES' : '✗ NO') . "\n";
 
-// Test accountant can view invoice
-$hasPermission = $graph->hasPermission('role:accountant', 'invoice', 'view');
-echo "  - role:accountant can view invoice: " . ($hasPermission ? '✓ YES' : '✗ NO') . "\n";
+// DSL rule: "role:accountant, invoice, view" becomes check('accountant', 'view', 'invoice', '*')
+$hasPermission = $graph->check('accountant', 'view', 'invoice', '*');
+echo "  - accountant can view invoice: " . ($hasPermission ? '✓ YES' : '✗ NO') . "\n";
 
-// Test accountant cannot delete invoice
-$hasPermission = $graph->hasPermission('role:accountant', 'invoice', 'delete');
-echo "  - role:accountant can delete invoice: " . ($hasPermission ? '✓ YES' : '✗ NO') . "\n";
+// Test permission that doesn't exist (returns null)
+$hasPermission = $graph->check('accountant', 'delete', 'invoice', '*');
+echo "  - accountant can delete invoice: " . ($hasPermission === null ? '✗ NOT DEFINED' : ($hasPermission ? '✓ YES' : '✗ NO')) . "\n";
 
-// Test user with owner context
-$hasPermission = $graph->hasPermission('user:123', 'invoice', 'edit', ['is_owner' => true]);
-echo "  - user:123 can edit invoice (as owner): " . ($hasPermission ? '✓ YES' : '✗ NO') . "\n";
-
-// Test user without owner context
-$hasPermission = $graph->hasPermission('user:123', 'invoice', 'edit', ['is_owner' => false]);
-echo "  - user:123 can edit invoice (not owner): " . ($hasPermission ? '✓ YES' : '✗ NO') . "\n";
-
-// Test manager with department context
-$hasPermission = $graph->hasPermission('role:manager', 'invoice', 'approve', ['department' => 'finance']);
-echo "  - role:manager can approve invoice (finance dept): " . ($hasPermission ? '✓ YES' : '✗ NO') . "\n";
-
-// Test manager with wrong department
-$hasPermission = $graph->hasPermission('role:manager', 'invoice', 'approve', ['department' => 'engineering']);
-echo "  - role:manager can approve invoice (engineering dept): " . ($hasPermission ? '✓ YES' : '✗ NO') . "\n";
+// DSL rule with specific ID: "user:42, invoice:123, delete"
+$hasPermission = $graph->check('42', 'delete', 'invoice', '123');
+echo "  - user:42 can delete invoice:123: " . ($hasPermission ? '✓ YES' : ($hasPermission === null ? '✗ NOT DEFINED' : '✗ NO')) . "\n";
 
 echo "\n";
 
-// Example 5: Export to different formats
-echo "5. Exporting permissions...\n";
-$exporter = new DslExporter($graph);
+// Example 4: Integration with Authorization Engine
+echo "4. Using with Authorization Engine...\n";
+echo "  Note: DSL provides policy input format\n";
+echo "  The Authorization Engine uses these precomputed permissions\n";
+echo "  for fast authorization decisions.\n\n";
 
-// Export to JSON
-$jsonExport = $exporter->export('json');
-echo "  - Exported to JSON format (" . strlen($jsonExport) . " bytes)\n";
+// Example 5: Summary
+echo "5. Summary:\n";
+echo "  - DSL provides human-readable policy format\n";
+echo "  - Validators ensure policy correctness before import\n";
+echo "  - Importers convert DSL to PermissionGraph format\n";
+echo "  - PermissionGraph integrates with Authorization Engine\n";
+echo "  - Both line-based (.dsl) and JSON formats supported\n\n";
 
-// Export to line format
-$lineExport = $exporter->export('line');
-echo "  - Exported to line format (" . strlen($lineExport) . " bytes)\n";
-
-// Save to files
-$exporter->exportToFile('/tmp/authza_export.json', 'json');
-$exporter->exportToFile('/tmp/authza_export.dsl', 'line');
-echo "  ✓ Saved exports to /tmp/authza_export.{json,dsl}\n\n";
-
-// Example 6: Show summary
-echo "6. Summary:\n";
-$allPermissions = $graph->getAllPermissions();
-echo "  - Total permissions in graph: " . count($allPermissions) . "\n";
-
-// Count unique subjects
-$subjects = array_unique(array_column($allPermissions, 'subject'));
-echo "  - Unique subjects: " . count($subjects) . "\n";
-
-// Count unique resources
-$resources = array_unique(array_column($allPermissions, 'resource'));
-echo "  - Unique resources: " . count($resources) . "\n";
-
-// Count rules with conditions
-$withConditions = array_filter($allPermissions, fn($p) => $p['condition'] !== null);
-echo "  - Rules with conditions: " . count($withConditions) . "\n";
-
-echo "\n=== DSL Usage Example Complete ===\n";
+echo "=== DSL Usage Example Complete ===\n";
+echo "\nNext steps:\n";
+echo "  1. Define policies in DSL format (.dsl or .json files)\n";
+echo "  2. Validate policies with DslValidator\n";
+echo "  3. Import policies with DslImporter\n";
+echo "  4. Use Authorization Engine for authorization decisions\n";

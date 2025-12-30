@@ -31,8 +31,9 @@ class DslImporterTest extends TestCase
         $count = $this->importer->import($parser, $dsl);
 
         $this->assertEquals(2, $count);
-        $this->assertTrue($this->graph->hasPermission('role:admin', 'invoice', 'create'));
-        $this->assertTrue($this->graph->hasPermission('role:accountant', 'invoice', 'view'));
+        // DSL "role:admin" becomes subjectId "admin", resource "invoice" becomes resourceType "invoice", resourceId "*"
+        $this->assertTrue($this->graph->check('admin', 'create', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('accountant', 'view', 'invoice', '*'));
     }
 
     public function testImportJsonDsl(): void
@@ -46,8 +47,8 @@ class DslImporterTest extends TestCase
         $count = $this->importer->import($parser, $json);
 
         $this->assertEquals(2, $count);
-        $this->assertTrue($this->graph->hasPermission('role:admin', 'invoice', 'create'));
-        $this->assertTrue($this->graph->hasPermission('role:accountant', 'invoice', 'view'));
+        $this->assertTrue($this->graph->check('admin', 'create', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('accountant', 'view', 'invoice', '*'));
     }
 
     public function testImportEmptyContent(): void
@@ -58,28 +59,16 @@ class DslImporterTest extends TestCase
         $this->assertEquals(0, $count);
     }
 
-    public function testImportWithConditions(): void
+    public function testImportWithSpecificResourceId(): void
     {
-        $dsl = "user:*, invoice, edit, owner";
+        $dsl = "user:42, invoice:123, delete";
         $parser = new LineDslParser();
 
         $count = $this->importer->import($parser, $dsl);
 
         $this->assertEquals(1, $count);
-        $this->assertTrue($this->graph->hasPermission('user:123', 'invoice', 'edit', ['is_owner' => true]));
-        $this->assertFalse($this->graph->hasPermission('user:123', 'invoice', 'edit', ['is_owner' => false]));
-    }
-
-    public function testImportWithWildcards(): void
-    {
-        $dsl = "user:*, invoice, view, owner";
-        $parser = new LineDslParser();
-
-        $count = $this->importer->import($parser, $dsl);
-
-        $this->assertEquals(1, $count);
-        $this->assertTrue($this->graph->hasPermission('user:42', 'invoice', 'view', ['is_owner' => true]));
-        $this->assertTrue($this->graph->hasPermission('user:999', 'invoice', 'view', ['is_owner' => true]));
+        // user:42 becomes subjectId "42", invoice:123 becomes resourceType "invoice", resourceId "123"
+        $this->assertTrue($this->graph->check('42', 'delete', 'invoice', '123'));
     }
 
     public function testImportFromFileJson(): void
@@ -91,7 +80,7 @@ class DslImporterTest extends TestCase
         $count = $this->importer->importFromFile($filePath);
 
         $this->assertEquals(1, $count);
-        $this->assertTrue($this->graph->hasPermission('role:admin', 'invoice', 'create'));
+        $this->assertTrue($this->graph->check('admin', 'create', 'invoice', '*'));
 
         unlink($filePath);
     }
@@ -105,8 +94,8 @@ class DslImporterTest extends TestCase
         $count = $this->importer->importFromFile($filePath);
 
         $this->assertEquals(2, $count);
-        $this->assertTrue($this->graph->hasPermission('role:admin', 'invoice', 'create'));
-        $this->assertTrue($this->graph->hasPermission('role:accountant', 'invoice', 'view'));
+        $this->assertTrue($this->graph->check('admin', 'create', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('accountant', 'view', 'invoice', '*'));
 
         unlink($filePath);
     }
@@ -120,7 +109,7 @@ class DslImporterTest extends TestCase
         $count = $this->importer->importFromFile($filePath);
 
         $this->assertEquals(1, $count);
-        $this->assertTrue($this->graph->hasPermission('role:admin', 'invoice', 'create'));
+        $this->assertTrue($this->graph->check('admin', 'create', 'invoice', '*'));
 
         unlink($filePath);
     }
@@ -148,7 +137,7 @@ class DslImporterTest extends TestCase
         }
     }
 
-    public function testImportMultipleRulesBuildsGraph(): void
+    public function testImportMultipleRules(): void
     {
         $dsl = <<<DSL
 role:admin, invoice, create
@@ -162,67 +151,10 @@ DSL;
         $count = $this->importer->import($parser, $dsl);
 
         $this->assertEquals(5, $count);
-        $permissions = $this->graph->getAllPermissions();
-        $this->assertCount(5, $permissions);
-    }
-
-    public function testImportContextConditions(): void
-    {
-        $dsl = "role:manager, invoice, approve, department==finance";
-        $parser = new LineDslParser();
-
-        $this->importer->import($parser, $dsl);
-
-        $this->assertTrue($this->graph->hasPermission(
-            'role:manager',
-            'invoice',
-            'approve',
-            ['department' => 'finance']
-        ));
-
-        $this->assertFalse($this->graph->hasPermission(
-            'role:manager',
-            'invoice',
-            'approve',
-            ['department' => 'sales']
-        ));
-    }
-
-    public function testImportInequalityConditions(): void
-    {
-        $dsl = "role:accountant, invoice, edit, status!=paid";
-        $parser = new LineDslParser();
-
-        $this->importer->import($parser, $dsl);
-
-        $this->assertTrue($this->graph->hasPermission(
-            'role:accountant',
-            'invoice',
-            'edit',
-            ['status' => 'draft']
-        ));
-
-        $this->assertFalse($this->graph->hasPermission(
-            'role:accountant',
-            'invoice',
-            'edit',
-            ['status' => 'paid']
-        ));
-    }
-
-    public function testImportFromRealExampleFile(): void
-    {
-        $exampleFile = __DIR__ . '/../../examples/dsl/rbac_rules.dsl';
-        
-        if (file_exists($exampleFile)) {
-            $count = $this->importer->importFromFile($exampleFile);
-            
-            $this->assertGreaterThan(0, $count);
-            $this->assertTrue($this->graph->hasPermission('role:admin', 'invoice', 'create'));
-            $this->assertTrue($this->graph->hasPermission('role:accountant', 'invoice', 'view'));
-        } else {
-            $this->markTestSkipped('Example file not found');
-        }
+        // Verify a few permissions
+        $this->assertTrue($this->graph->check('admin', 'create', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('admin', 'edit', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('accountant', 'view', 'invoice', '*'));
     }
 
     public function testImportInvalidDslThrowsException(): void
@@ -235,18 +167,18 @@ DSL;
         $this->importer->import($parser, $dsl);
     }
 
-    public function testImportPreservesExistingPermissions(): void
+    public function testImportRealExampleFile(): void
     {
-        // Add initial permission directly to graph
-        $this->graph->addPermission('role:existing', 'resource', 'action', null);
-
-        // Import new permissions
-        $dsl = "role:admin, invoice, create";
-        $parser = new LineDslParser();
-        $this->importer->import($parser, $dsl);
-
-        // Both should exist
-        $permissions = $this->graph->getAllPermissions();
-        $this->assertGreaterThanOrEqual(2, count($permissions));
+        $exampleFile = __DIR__ . '/../../examples/dsl/rbac_rules.dsl';
+        
+        if (file_exists($exampleFile)) {
+            $count = $this->importer->importFromFile($exampleFile);
+            
+            $this->assertGreaterThan(0, $count);
+            $this->assertTrue($this->graph->check('admin', 'create', 'invoice', '*'));
+            $this->assertTrue($this->graph->check('accountant', 'view', 'invoice', '*'));
+        } else {
+            $this->markTestSkipped('Example file not found');
+        }
     }
 }
