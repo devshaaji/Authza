@@ -25,8 +25,11 @@ class PermissionGraph
 
     private ?string $storagePath = null;
 
-    public function __construct(?CacheItemPoolInterface $cache = null, ?LoggerInterface $logger = null, ?string $storagePath = null)
-    {
+    public function __construct(
+        ?CacheItemPoolInterface $cache = null,
+        ?LoggerInterface $logger = null,
+        ?string $storagePath = null
+    ) {
         $this->cache = $cache;
         $this->logger = $logger ?? new NullLogger();
         $this->storagePath = $storagePath;
