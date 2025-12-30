@@ -1,0 +1,38 @@
+# Composer
+/vendor/
+composer.lock
+composer.phar
+
+# PHPUnit
+/phpunit.xml
+/.phpunit.cache
+/phpunit.result.cache
+/.phpunit.result.cache
+
+# Coverage
+/coverage/
+/clover.xml
+
+# IDE
+/.idea/
+/.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Cache and temporary files
+/cache/
+/storage/
+/tmp/
+*.cache
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+/build/
+/dist/

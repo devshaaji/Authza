@@ -1,0 +1,72 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Authza\Console\ServiceContainer;
+use Authza\Console\ConsoleConfig;
+use Authza\Console\ImportCommand;
+use Authza\Console\ExportCommand;
+use Authza\Console\ValidateCommand;
+use Authza\Console\GraphBuildCommand;
+use Authza\Console\GraphInvalidateCommand;
+use Authza\Console\CacheClearCommand;
+use Authza\Console\CheckCommand;
+use Authza\Console\ListCommand;
+use Authza\Console\StatsCommand;
+use Symfony\Component\Console\Application;
+
+$autoloadFiles = [
+    __DIR__ . '/../vendor/autoload.php',
+    __DIR__ . '/../../../autoload.php',
+];
+
+$autoloaded = false;
+foreach ($autoloadFiles as $autoloadFile) {
+    if (file_exists($autoloadFile)) {
+        require_once $autoloadFile;
+        $autoloaded = true;
+        break;
+    }
+}
+
+if (!$autoloaded) {
+    fwrite(
+        STDERR,
+        'You need to set up the project dependencies using Composer:' . PHP_EOL .
+        '    composer install' . PHP_EOL
+    );
+    exit(1);
+}
+
+try {
+    $configPath = getcwd() . '/authza_config.php';
+    $config = file_exists($configPath)
+        ? ConsoleConfig::fromFile($configPath)
+        : new ConsoleConfig();
+
+    $container = new ServiceContainer($config);
+
+    $composerJson = json_decode(
+        file_get_contents(__DIR__ . '/../composer.json'),
+        true
+    );
+    $version = $composerJson['version'] ?? 'dev-main';
+
+    $application = new Application('Authza CLI', $version);
+
+    $application->add(new ImportCommand($container));
+    $application->add(new ExportCommand($container));
+    $application->add(new ValidateCommand($container));
+    $application->add(new GraphBuildCommand($container));
+    $application->add(new GraphInvalidateCommand($container));
+    $application->add(new CacheClearCommand($container));
+    $application->add(new CheckCommand($container));
+    $application->add(new ListCommand($container));
+    $application->add(new StatsCommand($container));
+
+    $application->run();
+} catch (Exception $e) {
+    fwrite(STDERR, 'Error: ' . $e->getMessage() . PHP_EOL);
+    exit(1);
+}
