@@ -78,6 +78,7 @@ class DslExporter
      * Export policies to JSON format
      *
      * @return string JSON string
+     * @throws \RuntimeException If JSON encoding fails
      */
     private function exportToJson(): string
     {
@@ -86,7 +87,15 @@ class DslExporter
             $this->policies
         );
 
-        return json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+        if ($json === false) {
+            throw new \RuntimeException(
+                'Failed to encode policies to JSON: ' . json_last_error_msg()
+            );
+        }
+
+        return $json;
     }
 
     /**
