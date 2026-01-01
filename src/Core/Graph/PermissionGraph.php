@@ -152,7 +152,7 @@ class PermissionGraph
     /**
      * Precompute permissions from DSL rules (for DSL support)
      * 
-     * DSL rules format: [['subject' => 'role:admin', 'resource' => 'invoice', 'action' => 'create', 'condition' => null], ...]
+     * DSL rules format: [['subject' => 'role:admin', 'resource' => 'invoice', 'action' => 'create', 'condition' => null, 'effect' => 'allow'], ...]
      *
      * @param array $dslRules Array of DSL rule arrays
      * @return void
@@ -160,12 +160,12 @@ class PermissionGraph
     public function precomputeFromDsl(array $dslRules): void
     {
         foreach ($dslRules as $rule) {
-            // For DSL support, we treat the permission as "allowed" by default
             // DSL format uses subject:resource:action format where subject is like "role:admin" or "user:123"
             // We need to map this to the Authorization Engine format
             $subject = $rule['subject'];
             $resource = $rule['resource'];
             $action = $rule['action'];
+            $effect = $rule['effect'] ?? 'allow'; // Default to 'allow' if not specified
             
             // Extract subject ID from DSL format (e.g., "role:admin" -> "admin", "user:123" -> "123")
             $subjectParts = explode(':', $subject, 2);
@@ -177,7 +177,8 @@ class PermissionGraph
             $resourceId = $resourceParts[1] ?? '*'; // Use * as wildcard for resource type
             
             $key = $this->makeKey($subjectId, $action, $resourceType, $resourceId);
-            $this->permissions[$key] = true; // DSL permissions are allow-only
+            // Respect effect field: true for 'allow', false for 'deny'
+            $this->permissions[$key] = ($effect === 'allow');
         }
         
         $this->saveToCache();
