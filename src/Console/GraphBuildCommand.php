@@ -95,6 +95,16 @@ class GraphBuildCommand extends Command
 
             $stats = $graph->getStats();
 
+            // Save graph to storage
+            $saved = $this->container->saveGraphToStorage();
+            if ($verbose) {
+                if ($saved) {
+                    $helper->success("Graph saved to storage");
+                } else {
+                    $helper->warning("Could not save graph to storage (check graph.storage config)");
+                }
+            }
+
             $helper->success(sprintf(
                 '%d permissions precomputed, %d resource types, %d subject types',
                 $stats['total_rules'],

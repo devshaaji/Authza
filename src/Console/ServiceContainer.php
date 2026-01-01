@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Authza\Console;
 
 use Authza\Adapters\Cache\ArrayCache;
+use Authza\Adapters\Cache\FileCache;
 use Authza\Core\Authorization;
 use Authza\Core\Graph\PermissionGraph;
 use Authza\Core\PolicyRegistry;
@@ -53,15 +54,89 @@ class ServiceContainer
     {
         if ($this->permissionGraph === null) {
             $this->permissionGraph = new PermissionGraph($this->getCache());
+            
+            // Load from storage file if configured
+            $storagePath = $this->config->get('graph.storage');
+            if ($storagePath !== null && file_exists($storagePath)) {
+                $this->loadGraphFromStorage($storagePath);
+            }
         }
 
         return $this->permissionGraph;
     }
 
+    /**
+     * Load permission graph data from a storage file
+     *
+     * @param string $storagePath Path to storage file
+     * @return void
+     */
+    private function loadGraphFromStorage(string $storagePath): void
+    {
+        $content = file_get_contents($storagePath);
+        if ($content === false) {
+            return;
+        }
+
+        $data = json_decode($content, true);
+        if (!is_array($data)) {
+            return;
+        }
+
+        // Load rules into the graph
+        if (isset($data['rules']) && is_array($data['rules'])) {
+            foreach ($data['rules'] as $rule) {
+                if (is_array($rule)) {
+                    $this->permissionGraph->addRule($rule);
+                }
+            }
+        }
+    }
+
+    /**
+     * Save permission graph data to storage file
+     *
+     * @return bool True if saved successfully
+     */
+    public function saveGraphToStorage(): bool
+    {
+        $storagePath = $this->config->get('graph.storage');
+        if ($storagePath === null) {
+            return false;
+        }
+
+        // Ensure directory exists
+        $dir = dirname($storagePath);
+        if (!is_dir($dir)) {
+            if (!mkdir($dir, 0755, true) && !is_dir($dir)) {
+                return false;
+            }
+        }
+
+        $graph = $this->getPermissionGraph();
+        $rules = $graph->getRules();
+
+        $data = [
+            'version' => '1.0.0',
+            'created_at' => date('c'),
+            'rules' => $rules,
+        ];
+
+        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        return file_put_contents($storagePath, $json) !== false;
+    }
+
     public function getCache(): CacheInterface
     {
         if ($this->cache === null) {
-            $this->cache = new ArrayCache();
+            $adapter = $this->config->get('cache.adapter', 'array');
+            $cachePath = $this->config->get('cache.path');
+
+            if ($adapter === 'file' && $cachePath !== null) {
+                $this->cache = new FileCache($cachePath);
+            } else {
+                $this->cache = new ArrayCache();
+            }
         }
 
         return $this->cache;

@@ -64,7 +64,11 @@ class Authorization
 
         // Check permission graph first (fastest)
         if ($this->graph !== null) {
-            $graphResult = $this->graph->check($subjectId, $action, $resourceType, $resourceId);
+            // Build list of subject identifiers: user ID + all roles
+            $subjectIds = array_merge([$subjectId], $subject->getRoles());
+            
+            // Single optimized call checks all subjects with proper deny precedence
+            $graphResult = $this->graph->checkMultiple($subjectIds, $action, $resourceType, $resourceId);
             
             if ($graphResult !== null) {
                 $this->log($graphResult, $subject, $action, $resource, $context, 'graph');

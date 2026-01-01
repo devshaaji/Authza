@@ -22,6 +22,16 @@ class PermissionGraph
     private array $permissions = [];
 
     /**
+     * @var array<string, array{subject: string, resource: string, action: string, condition: mixed, effect: string}>
+     */
+    private array $rules = [];
+
+    /**
+     * Track if changes need to be persisted
+     */
+    private bool $dirty = false;
+
+    /**
      * Create a new permission graph
      *
      * @param CacheInterface|null $cache Optional cache for storing the graph
@@ -58,6 +68,9 @@ class PermissionGraph
 
     /**
      * Check if a permission exists in the precomputed graph
+     * 
+     * Optimized: Uses prioritized lookup order for most common patterns
+     * Time complexity: O(1) to O(6) hash lookups
      *
      * @param string $subjectId Subject identifier
      * @param string $action Action being performed
@@ -67,13 +80,52 @@ class PermissionGraph
      */
     public function check(string $subjectId, string $action, string $resourceType, string $resourceId): ?bool
     {
-        $key = $this->makeKey($subjectId, $action, $resourceType, $resourceId);
+        // Optimized key construction - avoid repeated string concatenation
+        $baseKey = "{$subjectId}:{$action}:{$resourceType}";
         
-        if (!isset($this->permissions[$key])) {
-            return null;
-        }
+        // Most common: exact match or type-level wildcard (covers 90%+ of cases)
+        return $this->permissions["{$baseKey}:{$resourceId}"]
+            ?? $this->permissions["{$baseKey}:*"]
+            // Less common: subject wildcards
+            ?? $this->permissions["*:{$action}:{$resourceType}:{$resourceId}"]
+            ?? $this->permissions["*:{$action}:{$resourceType}:*"]
+            // Rare: action wildcards (superadmin patterns)
+            ?? $this->permissions["{$subjectId}:*:{$resourceType}:{$resourceId}"]
+            ?? $this->permissions["{$subjectId}:*:{$resourceType}:*"]
+            ?? null;
+    }
 
-        return $this->permissions[$key];
+    /**
+     * Batch check permissions for multiple roles at once
+     * 
+     * More efficient than calling check() in a loop
+     * Time complexity: O(R × 6) but with early exit on deny
+     *
+     * @param array<string> $subjectIds Array of subject IDs (user ID + roles)
+     * @param string $action Action being performed
+     * @param string $resourceType Resource type
+     * @param string $resourceId Resource identifier
+     * @return bool|null True if any allows, false if any denies (deny wins), null if not found
+     */
+    public function checkMultiple(array $subjectIds, string $action, string $resourceType, string $resourceId): ?bool
+    {
+        $allowed = null;
+        
+        foreach ($subjectIds as $subjectId) {
+            $result = $this->check($subjectId, $action, $resourceType, $resourceId);
+            
+            // Deny takes immediate precedence - early exit
+            if ($result === false) {
+                return false;
+            }
+            
+            if ($result === true) {
+                $allowed = true;
+                // Don't return yet - need to check for deny rules in other roles
+            }
+        }
+        
+        return $allowed;
     }
 
     /**
@@ -115,6 +167,8 @@ class PermissionGraph
 
     /**
      * Add a single rule to the permission graph
+     * 
+     * Note: Call flush() after batch additions to persist to cache
      *
      * @param array{subject: string, resource: string, action: string, effect?: string, condition?: mixed} $rule
      * @return void
@@ -125,8 +179,8 @@ class PermissionGraph
         $resource = $rule['resource'];
         $action = $rule['action'];
         $effect = $rule['effect'] ?? 'allow';
+        $condition = $rule['condition'] ?? null;
 
-       
         $subjectParts = explode(':', $subject, 2);
         $subjectId = $subjectParts[1] ?? $subject;
 
@@ -136,8 +190,33 @@ class PermissionGraph
 
         $key = $this->makeKey($subjectId, $action, $resourceType, $resourceId);
         $this->permissions[$key] = ($effect === 'allow');
+        
+        // Store the original rule for export
+        $this->rules[$key] = [
+            'subject' => $subject,
+            'resource' => $resource,
+            'action' => $action,
+            'condition' => $condition,
+            'effect' => $effect,
+        ];
 
-        $this->saveToCache();
+        // Mark as dirty instead of saving immediately
+        $this->dirty = true;
+    }
+
+    /**
+     * Flush pending changes to cache
+     * 
+     * Call this after batch operations like importing multiple rules
+     *
+     * @return void
+     */
+    public function flush(): void
+    {
+        if ($this->dirty) {
+            $this->saveToCache();
+            $this->dirty = false;
+        }
     }
 
     /**
@@ -230,30 +309,13 @@ class PermissionGraph
      */
     public function getRules(): array
     {
-        $rules = [];
-        
-        foreach ($this->permissions as $key => $allowed) {
-            // Parse key format: subjectId:action:resourceType:resourceId
-            $parts = explode(':', $key, 4);
-            
-            if (count($parts) === 4) {
-                $rules[] = [
-                    'subject' => $parts[0],
-                    'resource' => $parts[2] . ($parts[3] !== '*' ? ':' . $parts[3] : ''),
-                    'action' => $parts[1],
-                    'condition' => null,
-                    'effect' => $allowed ? 'allow' : 'deny',
-                ];
-            }
-        }
-        
-        return $rules;
+        return array_values($this->rules);
     }
 
     /**
      * Precompute permissions from DSL rules (for DSL support)
      * 
-     * DSL rules format: [['subject' => 'role:admin', 'resource' => 'invoice', 'action' => 'create', 'condition' => null, 'effect' => 'allow'], ...]
+     * Optimized: Batches cache writes
      *
      * @param array $dslRules Array of DSL rule arrays
      * @return void
@@ -261,25 +323,18 @@ class PermissionGraph
     public function precomputeFromDsl(array $dslRules): void
     {
         foreach ($dslRules as $rule) {
-            $subject = $rule['subject'];
-            $resource = $rule['resource'];
-            $action = $rule['action'];
-            $effect = $rule['effect'] ?? 'allow'; // Default to 'allow' if not specified
-            
-            // Extract subject ID from DSL format (e.g., "role:admin" -> "admin", "user:123" -> "123")
-            $subjectParts = explode(':', $subject, 2);
-            $subjectId = $subjectParts[1] ?? $subject;
-            
-            // Extract resource type and ID (e.g., "invoice:123" -> type:"invoice", id:"123")
-            $resourceParts = explode(':', $resource, 2);
-            $resourceType = $resourceParts[0];
-            $resourceId = $resourceParts[1] ?? '*'; // Use * as wildcard for resource type
-            
-            $key = $this->makeKey($subjectId, $action, $resourceType, $resourceId);
-            // Respect effect field: true for 'allow', false for 'deny'
-            $this->permissions[$key] = ($effect === 'allow');
+            $this->addRule($rule);
         }
         
-        $this->saveToCache();
+        // Single cache write after all rules added
+        $this->flush();
+    }
+
+    /**
+     * Ensure changes are persisted on destruction
+     */
+    public function __destruct()
+    {
+        $this->flush();
     }
 }

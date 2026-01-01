@@ -120,12 +120,22 @@ class JsonDslParser implements DslParserInterface
                 "Invalid 'condition' at rule index {$index}: Must be a non-empty string or null"
             );
         }
+
+        // Handle optional effect (defaults to 'allow')
+        $effect = $item['effect'] ?? 'allow';
+        
+        if (!is_string($effect) || !in_array($effect, ['allow', 'deny'], true)) {
+            throw new DslParseException(
+                "Invalid 'effect' at rule index {$index}: Must be 'allow' or 'deny' (got: {$effect})"
+            );
+        }
         
         return [
             'subject' => $item['subject'],
             'resource' => $item['resource'],
             'action' => $item['action'],
             'condition' => $condition,
+            'effect' => $effect,
         ];
     }
 }

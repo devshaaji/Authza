@@ -1,0 +1,28 @@
+[
+    {
+      "subject": "role:admin",
+      "resource": "invoice",
+      "action": "create",
+      "effect": "allow"
+    },
+    {
+      "subject": "role:accountant",
+      "resource": "invoice",
+      "action": "edit",
+      "condition": "status!=paid",
+      "effect": "allow"
+    },
+    {
+      "subject": "user:*",
+      "resource": "invoice",
+      "action": "delete",
+      "condition": "owner",
+      "effect": "allow"
+    },
+    {
+      "subject": "role:intern",
+      "resource": "invoice",
+      "action": "delete",
+      "effect": "deny"
+    }
+  ]

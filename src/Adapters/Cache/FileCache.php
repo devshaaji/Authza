@@ -20,10 +20,13 @@ class FileCache implements CacheInterface
      */
     public function __construct(string $cacheDir)
     {
-        $this->cacheDir = rtrim($cacheDir, '/');
+        // Normalize path separators for the current OS
+        $this->cacheDir = rtrim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $cacheDir), DIRECTORY_SEPARATOR);
         
         if (!is_dir($this->cacheDir)) {
-            mkdir($this->cacheDir, 0755, true);
+            if (!mkdir($this->cacheDir, 0755, true) && !is_dir($this->cacheDir)) {
+                throw new \RuntimeException("Failed to create cache directory: {$this->cacheDir}");
+            }
         }
     }
 
@@ -89,7 +92,7 @@ class FileCache implements CacheInterface
      */
     public function clear(): bool
     {
-        $files = glob($this->cacheDir . '/*');
+        $files = glob($this->cacheDir . DIRECTORY_SEPARATOR . '*');
         
         if ($files === false) {
             return false;
@@ -171,6 +174,6 @@ class FileCache implements CacheInterface
      */
     private function getFilePath(string $key): string
     {
-        return $this->cacheDir . '/' . md5($key) . '.cache';
+        return $this->cacheDir . DIRECTORY_SEPARATOR . md5($key) . '.cache';
     }
 }

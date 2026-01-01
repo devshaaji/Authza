@@ -15,32 +15,48 @@ class DslPolicySource implements PolicySourceInterface
 {
     private DslParserInterface $parser;
     private ?DslValidator $validator;
+    private ?string $content = null;
+    private ?string $filePath = null;
 
     /**
      * Create a new DSL policy source
      *
      * @param DslParserInterface $parser Parser to use for DSL content
      * @param DslValidator|null $validator Optional validator for parsed rules
+     * @param string|null $content Optional DSL content to load
+     * @param string|null $filePath Optional file path to load from
      */
     public function __construct(
         DslParserInterface $parser,
-        ?DslValidator $validator = null
+        ?DslValidator $validator = null,
+        ?string $content = null,
+        ?string $filePath = null
     ) {
         $this->parser = $parser;
         $this->validator = $validator;
+        $this->content = $content;
+        $this->filePath = $filePath;
     }
 
     /**
-     * Load policies from DSL content
+     * Load policies from configured source (content or file)
      *
      * @return array<PolicyDefinition> Array of PolicyDefinition objects
      * @throws DslParseException If parsing or validation fails
+     * @throws \BadMethodCallException If no content or file path configured
      */
     public function load(): array
     {
-        // This method expects content to be set via loadFromString or loadFromFile
+        if ($this->filePath !== null) {
+            return $this->loadFromFile($this->filePath);
+        }
+
+        if ($this->content !== null) {
+            return $this->loadFromString($this->content);
+        }
+
         throw new \BadMethodCallException(
-            "DslPolicySource::load() cannot be called directly. Use loadFromString() or loadFromFile() instead."
+            "No content or file path configured. Use constructor parameters or call loadFromString()/loadFromFile() directly."
         );
     }
 

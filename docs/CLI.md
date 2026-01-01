@@ -18,6 +18,7 @@ Complete guide to using the Authza Command-Line Interface for managing authoriza
   - [check](#check)
   - [list](#list)
   - [stats](#stats)
+- [DSL Format Reference](#dsl-format-reference)
 - [Common Workflows](#common-workflows)
 - [CI/CD Integration](#cicd-integration)
 - [Troubleshooting](#troubleshooting)
@@ -45,6 +46,13 @@ The `authz` CLI tool will be available in `vendor/bin/authz`.
 composer global require authza/authza
 ```
 
+### Verify Installation
+
+```bash
+./vendor/bin/authz --version
+./vendor/bin/authz list
+```
+
 ---
 
 ## Configuration
@@ -57,7 +65,7 @@ Create an `authza_config.php` file in your project root:
 <?php
 return [
     'cache' => [
-        'adapter' => 'file',
+        'adapter' => 'file',           // file, redis, apcu, array
         'path' => __DIR__ . '/cache'
     ],
     'graph' => [
@@ -81,6 +89,13 @@ export AUTHZA_GRAPH_STORAGE=/var/lib/authza/graph.json
 export AUTHZA_POLICY_NAMESPACE=App\\Policies
 ```
 
+### Precedence
+
+1. Command-line options (highest)
+2. Environment variables
+3. Configuration file
+4. Default values (lowest)
+
 ---
 
 ## Commands Reference
@@ -95,10 +110,13 @@ authz import --file=<path> [--format=<json|line>] [--dry-run] [-v]
 ```
 
 **Options:**
-- `--file`, `-f`: Path to DSL file (required)
-- `--format`: Force specific format (json|line), auto-detect if not provided
-- `--dry-run`: Validate without importing
-- `-v`, `--verbose`: Show detailed output
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--file` | `-f` | Path to DSL file (required) |
+| `--format` | | Force format (json\|line), auto-detects by extension |
+| `--dry-run` | | Validate without importing |
+| `-v` | `--verbose` | Show detailed output |
 
 **Examples:**
 
@@ -125,7 +143,7 @@ authz import --file=policies.json -v
 
 ### export
 
-Export policies to DSL format.
+Export policies from the permission graph to DSL format.
 
 **Usage:**
 ```bash
@@ -133,10 +151,13 @@ authz export --output=<path> [--format=<json|line>] [--filter=<pattern>] [-v]
 ```
 
 **Options:**
-- `--output`, `-o`: Output file path (required)
-- `--format`: Export format (json|line), default: json
-- `--filter`: Filter rules by pattern (e.g., "role:admin", "invoice")
-- `-v`, `--verbose`: Show detailed output
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--output` | `-o` | Output file path (required) |
+| `--format` | | Export format (json\|line), default: json |
+| `--filter` | | Filter rules by pattern |
+| `-v` | `--verbose` | Show detailed output |
 
 **Examples:**
 
@@ -152,6 +173,29 @@ authz export --output=admin_rules.json --filter=role:admin
 
 # Export invoice-related rules
 authz export --output=invoice_policies.json --filter=invoice
+
+# Export deny rules only
+authz export --output=deny_rules.json --filter=deny
+```
+
+**Output Formats:**
+
+JSON format includes the `effect` field:
+```json
+[
+  {
+    "subject": "role:admin",
+    "resource": "invoice",
+    "action": "create",
+    "effect": "allow"
+  }
+]
+```
+
+Line format:
+```
+role:admin, invoice, create, , allow
+role:admin, invoice, delete, , deny
 ```
 
 ---
@@ -166,9 +210,22 @@ authz validate --file=<path> [--format=<json|line>] [--strict]
 ```
 
 **Options:**
-- `--file`, `-f`: Path to DSL file (required)
-- `--format`: Force specific format (json|line)
-- `--strict`: Treat warnings as errors
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--file` | `-f` | Path to DSL file (required) |
+| `--format` | | Force format (json\|line) |
+| `--strict` | | Treat warnings as errors |
+
+**Validation Checks:**
+- ✅ Syntax errors
+- ✅ Invalid subject format (must be `role:*` or `user:*`)
+- ✅ Missing required fields (subject, resource, action)
+- ✅ Invalid effect (must be `allow` or `deny`)
+- ✅ Duplicate rules
+- ✅ Conflicting rules (wildcard vs specific)
+- ⚠️ Non-standard resource types (warning)
+- ⚠️ Non-standard actions (warning)
 
 **Examples:**
 
@@ -176,7 +233,7 @@ authz validate --file=<path> [--format=<json|line>] [--strict]
 # Validate DSL file
 authz validate --file=policies.json
 
-# Validate with strict mode
+# Validate with strict mode (warnings become errors)
 authz validate --file=policies.json --strict
 
 # Validate line-based DSL
@@ -184,14 +241,14 @@ authz validate --file=policies.dsl --format=line
 ```
 
 **Exit Codes:**
-- `0`: Valid
-- `1`: Invalid
+- `0`: Valid (no errors)
+- `1`: Invalid (has errors)
 
 ---
 
 ### graph:build
 
-Build or rebuild the permission graph.
+Build or rebuild the permission graph from DSL policies.
 
 **Usage:**
 ```bash
@@ -199,9 +256,12 @@ authz graph:build [--source=<path>] [--clear] [-v]
 ```
 
 **Options:**
-- `--source`, `-s`: DSL file to build from
-- `--clear`, `-c`: Clear existing graph before building
-- `-v`, `--verbose`: Show detailed output
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--source` | `-s` | DSL file to build from |
+| `--clear` | `-c` | Clear existing graph before building |
+| `-v` | `--verbose` | Show detailed output |
 
 **Examples:**
 
@@ -231,7 +291,10 @@ authz graph:invalidate [--subject=<id>]
 ```
 
 **Options:**
-- `--subject`, `-s`: Invalidate specific subject only
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--subject` | `-s` | Invalidate specific subject only |
 
 **Examples:**
 
@@ -239,15 +302,18 @@ authz graph:invalidate [--subject=<id>]
 # Invalidate entire graph cache
 authz graph:invalidate
 
-# Invalidate specific subject
+# Invalidate specific user
 authz graph:invalidate --subject=user:42
+
+# Invalidate specific role
+authz graph:invalidate --subject=role:admin
 ```
 
 ---
 
 ### cache:clear
 
-Clear all caches.
+Clear authorization caches.
 
 **Usage:**
 ```bash
@@ -255,13 +321,16 @@ authz cache:clear [--type=<all|decisions|graph>] [--confirm]
 ```
 
 **Options:**
-- `--type`, `-t`: Type of cache to clear (all|decisions|graph), default: all
-- `--confirm`, `-c`: Skip confirmation prompt
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--type` | `-t` | Cache type (all\|decisions\|graph), default: all |
+| `--confirm` | `-c` | Skip confirmation prompt |
 
 **Examples:**
 
 ```bash
-# Clear all caches (with confirmation)
+# Clear all caches (with confirmation prompt)
 authz cache:clear
 
 # Clear specific cache type
@@ -278,7 +347,7 @@ authz cache:clear --type=decisions --confirm
 
 ### check
 
-Test permission checks.
+Test permission checks from the command line.
 
 **Usage:**
 ```bash
@@ -286,12 +355,15 @@ authz check --user=<id> --resource=<type:id> --action=<action> [--roles=<roles>]
 ```
 
 **Options:**
-- `--user`, `-u`: User/subject ID (required)
-- `--resource`, `-r`: Resource in format "type:id" (e.g., "invoice:123") (required)
-- `--action`, `-a`: Action to check (e.g., "edit", "view") (required)
-- `--roles`: Comma-separated roles for the user
-- `--context`: JSON context data
-- `-v`, `--verbose`: Show detailed evaluation trace
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--user` | `-u` | User/subject ID (required) |
+| `--resource` | `-r` | Resource as "type:id" (required) |
+| `--action` | `-a` | Action to check (required) |
+| `--roles` | | Comma-separated roles |
+| `--context` | | JSON context data |
+| `-v` | `--verbose` | Show evaluation trace |
 
 **Examples:**
 
@@ -302,22 +374,27 @@ authz check --user=42 --resource=invoice:123 --action=edit
 # Check with roles
 authz check --user=42 --resource=invoice:123 --action=edit --roles=admin,accountant
 
-# Check with context
-authz check --user=42 --resource=invoice:123 --action=approve --context='{"department":"finance"}'
+# Check with context (for conditions like department==finance)
+authz check --user=42 --resource=invoice:123 --action=approve \
+    --context='{"department":"finance"}'
 
-# Check with verbose output
+# Check ownership condition
+authz check --user=42 --resource=invoice:123 --action=edit \
+    --context='{"is_owner":true}'
+
+# Verbose output shows evaluation details
 authz check --user=42 --resource=invoice:123 --action=edit --roles=admin -v
 ```
 
 **Exit Codes:**
-- `0`: Allowed
-- `1`: Denied
+- `0`: Allowed ✓
+- `1`: Denied ✗
 
 ---
 
 ### list
 
-List all policies.
+List all policies in the permission graph.
 
 **Usage:**
 ```bash
@@ -327,10 +404,13 @@ authz list [--filter=<pattern>] [--format=<table|json|yaml>] [--resource=<type>]
 **Aliases:** `policy:list`
 
 **Options:**
-- `--filter`, `-f`: Filter by subject, resource, or action
-- `--format`: Output format (table|json|yaml), default: table
-- `--resource`, `-r`: Filter by resource type
-- `--subject`, `-s`: Filter by subject
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--filter` | `-f` | Filter by subject, resource, action, or effect |
+| `--format` | | Output format (table\|json), default: table |
+| `--resource` | `-r` | Filter by resource type |
+| `--subject` | `-s` | Filter by subject |
 
 **Examples:**
 
@@ -350,8 +430,23 @@ authz list --resource=invoice
 # Filter by subject
 authz list --subject=role:admin
 
+# Filter deny rules
+authz list --filter=deny
+
 # Combined filters
 authz list --resource=invoice --filter=edit
+```
+
+**Table Output:**
+```
++-------------+----------+--------+-----------+--------+
+| Subject     | Resource | Action | Condition | Effect |
++-------------+----------+--------+-----------+--------+
+| role:admin  | invoice  | create |           | allow  |
+| role:admin  | invoice  | edit   |           | allow  |
+| role:admin  | invoice  | delete |           | deny   |
+| user:*      | invoice  | view   | owner     | allow  |
++-------------+----------+--------+-----------+--------+
 ```
 
 ---
@@ -366,7 +461,10 @@ authz stats [--format=<table|json>]
 ```
 
 **Options:**
-- `--format`, `-f`: Output format (table|json), default: table
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--format` | `-f` | Output format (table\|json), default: table |
 
 **Examples:**
 
@@ -378,109 +476,255 @@ authz stats
 authz stats --format=json
 ```
 
-**Statistics Include:**
+**Output includes:**
 - Total rules count
 - Rules by resource type
 - Rules by subject type (role/user)
+- Allow vs deny breakdown
 - Cache information
+
+---
+
+## DSL Format Reference
+
+### JSON Format
+
+```json
+[
+  {
+    "subject": "role:admin",
+    "resource": "invoice",
+    "action": "create",
+    "effect": "allow"
+  },
+  {
+    "subject": "role:accountant",
+    "resource": "invoice",
+    "action": "edit",
+    "condition": "status!=paid",
+    "effect": "allow"
+  },
+  {
+    "subject": "user:*",
+    "resource": "invoice",
+    "action": "delete",
+    "condition": "owner",
+    "effect": "allow"
+  },
+  {
+    "subject": "role:intern",
+    "resource": "invoice",
+    "action": "delete",
+    "effect": "deny"
+  }
+]
+```
+
+### Line-Based Format
+
+```
+# Syntax: subject, resource, action[, condition[, effect]]
+# Comments start with #
+# Empty lines are ignored
+
+# === Admin Permissions ===
+role:admin, invoice, create
+role:admin, invoice, edit
+role:admin, invoice, view
+
+# === Deny Rules ===
+role:intern, invoice, delete, , deny
+
+# === Conditional Rules ===
+role:accountant, invoice, edit, status!=paid, allow
+
+# === Ownership Rules ===
+user:*, invoice, view, owner
+user:*, invoice, edit, owner
+user:*, invoice, delete, owner, allow
+```
+
+### Field Reference
+
+| Field | Required | Description | Examples |
+|-------|----------|-------------|----------|
+| `subject` | Yes | Who is requesting access | `role:admin`, `user:42`, `user:*` |
+| `resource` | Yes | What is being accessed | `invoice`, `invoice:123`, `invoice:*` |
+| `action` | Yes | Operation being performed | `create`, `edit`, `delete`, `view` |
+| `condition` | No | Context-aware condition | `owner`, `department==finance`, `status!=paid` |
+| `effect` | No | Allow or deny (default: allow) | `allow`, `deny` |
+
+### Subject Patterns
+
+| Pattern | Description |
+|---------|-------------|
+| `role:admin` | Users with admin role |
+| `role:*` | Any role |
+| `user:42` | Specific user with ID 42 |
+| `user:*` | Any authenticated user |
+
+### Resource Patterns
+
+| Pattern | Description |
+|---------|-------------|
+| `invoice` | All invoices (type-level) |
+| `invoice:123` | Specific invoice with ID 123 |
+| `invoice:*` | Any invoice (explicit wildcard) |
+
+### Condition Patterns
+
+| Pattern | Description | Context Required |
+|---------|-------------|------------------|
+| `owner` | User owns the resource | `is_owner: true` |
+| `key==value` | Context key equals value | `key: value` |
+| `key!=value` | Context key not equals | `key: other` |
 
 ---
 
 ## Common Workflows
 
-### 1. Policy Development Workflow
+### 1. Initial Setup
 
 ```bash
-# Step 1: Create/edit DSL file
-# Edit your policies.json file
+# Create policies file
+cat > policies.json << 'EOF'
+[
+  {"subject": "role:admin", "resource": "invoice", "action": "create", "effect": "allow"},
+  {"subject": "role:admin", "resource": "invoice", "action": "edit", "effect": "allow"},
+  {"subject": "role:admin", "resource": "invoice", "action": "delete", "effect": "allow"},
+  {"subject": "role:admin", "resource": "invoice", "action": "view", "effect": "allow"},
+  {"subject": "role:accountant", "resource": "invoice", "action": "view", "effect": "allow"},
+  {"subject": "user:*", "resource": "invoice", "action": "view", "condition": "owner", "effect": "allow"}
+]
+EOF
 
-# Step 2: Validate policies
+# Validate
+authz validate --file=policies.json --strict
+
+# Import
+authz import --file=policies.json
+
+# Build graph
+authz graph:build
+
+# Verify
+authz list
+authz stats
+```
+
+### 2. Policy Development Workflow
+
+```bash
+# Step 1: Edit policies
+vim policies.json
+
+# Step 2: Validate
 authz validate --file=policies.json --strict
 
 # Step 3: Dry-run import
 authz import --file=policies.json --dry-run
 
-# Step 4: Import policies
+# Step 4: Import
 authz import --file=policies.json
 
-# Step 5: Build permission graph
-authz graph:build
+# Step 5: Rebuild graph
+authz graph:build --clear
 
-# Step 6: Test permissions
+# Step 6: Test
 authz check --user=1 --resource=invoice:123 --action=edit --roles=admin
 
-# Step 7: List policies to verify
+# Step 7: Verify
 authz list --format=table
 ```
 
-### 2. Production Deployment Workflow
+### 3. Production Deployment
 
 ```bash
 #!/bin/bash
 set -e
 
+echo "=== Authza Policy Deployment ==="
+
 # Backup current policies
-authz export --output=backup_$(date +%Y%m%d_%H%M%S).json
+BACKUP_FILE="backup_$(date +%Y%m%d_%H%M%S).json"
+authz export --output="$BACKUP_FILE"
+echo "✓ Backed up to $BACKUP_FILE"
 
 # Validate new policies
 authz validate --file=new_policies.json --strict
+echo "✓ Validation passed"
 
 # Import new policies
 authz import --file=new_policies.json
+echo "✓ Policies imported"
 
-# Rebuild permission graph
+# Rebuild graph
 authz graph:build --clear
+echo "✓ Graph rebuilt"
 
-# Clear caches
+# Clear decision caches
 authz cache:clear --type=decisions --confirm
+echo "✓ Caches cleared"
 
 # Verify critical permissions
 authz check --user=admin --resource=system:config --action=edit --roles=admin
+echo "✓ Critical permissions verified"
 
-echo "Deployment completed successfully"
+echo "=== Deployment Complete ==="
 ```
 
-### 3. Debugging Workflow
+### 4. Debugging Permissions
 
 ```bash
 # Check current statistics
 authz stats
 
 # List all policies
-authz list --format=json > current_policies.json
+authz list --format=json > debug_policies.json
 
 # Test specific permission with verbose output
 authz check --user=42 --resource=invoice:123 --action=edit --roles=accountant -v
 
-# Export policies for review
-authz export --output=debug_export.json
+# Check if deny rules exist
+authz list --filter=deny
 
-# Validate policies
-authz validate --file=debug_export.json
+# Export for review
+authz export --output=review.json
 ```
 
-### 4. Audit and Compliance Workflow
+### 5. Rollback Procedure
 
 ```bash
-# Export all policies for audit
-authz export --output=audit_$(date +%Y%m%d).json --format=json
+#!/bin/bash
+BACKUP_FILE=$1
 
-# Export specific role policies
-authz export --output=admin_policies.json --filter=role:admin
-authz export --output=user_policies.json --filter=role:user
+if [ -z "$BACKUP_FILE" ]; then
+    echo "Usage: rollback.sh <backup_file>"
+    exit 1
+fi
 
-# Generate statistics report
-authz stats --format=json > stats_$(date +%Y%m%d).json
+echo "Rolling back to $BACKUP_FILE..."
 
-# List all policies in readable format
-authz list --format=table > policies_report.txt
+# Clear current graph
+authz graph:invalidate
+
+# Import backup
+authz import --file="$BACKUP_FILE"
+
+# Rebuild
+authz graph:build --clear
+
+# Clear caches
+authz cache:clear --confirm
+
+echo "Rollback complete"
 ```
 
 ---
 
 ## CI/CD Integration
 
-### GitHub Actions Example
+### GitHub Actions
 
 ```yaml
 name: Authza Policy Validation
@@ -489,12 +733,14 @@ on:
   pull_request:
     paths:
       - 'policies/**'
+      - '*.json'
+      - '*.dsl'
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -502,64 +748,87 @@ jobs:
           php-version: '8.1'
       
       - name: Install dependencies
-        run: composer install
+        run: composer install --no-dev
       
       - name: Validate policies
         run: ./vendor/bin/authz validate --file=policies/production.json --strict
       
+      - name: Dry-run import
+        run: ./vendor/bin/authz import --file=policies/production.json --dry-run
+      
       - name: Test critical permissions
         run: |
+          ./vendor/bin/authz import --file=policies/production.json
+          ./vendor/bin/authz graph:build
           ./vendor/bin/authz check --user=admin --resource=system:config --action=edit --roles=admin
-          ./vendor/bin/authz check --user=user --resource=invoice:1 --action=view --roles=user
 ```
 
-### GitLab CI Example
+### GitLab CI
 
 ```yaml
+stages:
+  - validate
+  - deploy
+
 validate-policies:
-  stage: test
+  stage: validate
   script:
-    - composer install
+    - composer install --no-dev
     - ./vendor/bin/authz validate --file=policies/production.json --strict
     - ./vendor/bin/authz import --file=policies/production.json --dry-run
-  only:
-    - merge_requests
-    - main
+  rules:
+    - changes:
+        - policies/**/*
+
+deploy-policies:
+  stage: deploy
+  script:
+    - composer install --no-dev
+    - ./vendor/bin/authz import --file=policies/production.json
+    - ./vendor/bin/authz graph:build --clear
+    - ./vendor/bin/authz cache:clear --confirm
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - policies/**/*
 ```
 
-### Jenkins Pipeline Example
+### Jenkins Pipeline
 
 ```groovy
 pipeline {
     agent any
     
     stages {
-        stage('Install') {
+        stage('Validate') {
             steps {
-                sh 'composer install'
-            }
-        }
-        
-        stage('Validate Policies') {
-            steps {
+                sh 'composer install --no-dev'
                 sh './vendor/bin/authz validate --file=policies/production.json --strict'
             }
         }
         
-        stage('Import Policies') {
+        stage('Test') {
+            steps {
+                sh './vendor/bin/authz import --file=policies/production.json --dry-run'
+            }
+        }
+        
+        stage('Deploy') {
             when {
                 branch 'main'
             }
             steps {
+                sh './vendor/bin/authz export --output=backup_${BUILD_NUMBER}.json'
                 sh './vendor/bin/authz import --file=policies/production.json'
                 sh './vendor/bin/authz graph:build --clear'
+                sh './vendor/bin/authz cache:clear --confirm'
             }
         }
-        
-        stage('Test Permissions') {
-            steps {
-                sh './vendor/bin/authz check --user=admin --resource=system:config --action=edit --roles=admin'
-            }
+    }
+    
+    post {
+        failure {
+            sh './vendor/bin/authz import --file=backup_${BUILD_NUMBER}.json || true'
         }
     }
 }
@@ -573,54 +842,78 @@ pipeline {
 
 **Problem:** `authz: command not found`
 
-**Solution:**
+**Solutions:**
 ```bash
 # Use full path
 ./vendor/bin/authz list
 
-# Or add to PATH
+# Add to PATH
 export PATH="$PATH:./vendor/bin"
-authz list
 
-# Or use composer run
+# Use PHP directly
+php vendor/bin/authz list
+
+# Use composer
 composer exec authz list
 ```
 
-### File Permission Errors
+### Permission Denied
 
-**Problem:** `Failed to write to file`
+**Problem:** `Permission denied` when running authz
 
 **Solution:**
 ```bash
-# Check directory permissions
-ls -la storage/
-
-# Create directory if needed
-mkdir -p storage/
-chmod 755 storage/
-
-# Check file permissions
-chmod 644 storage/graph.json
+chmod +x vendor/bin/authz
 ```
 
 ### Invalid JSON Errors
 
 **Problem:** `Invalid JSON: Syntax error`
 
-**Solution:**
+**Solutions:**
 ```bash
 # Validate JSON syntax
+cat policies.json | php -r "json_decode(file_get_contents('php://stdin')); echo json_last_error_msg();"
+
+# Use jq to format/validate
 cat policies.json | jq .
 
-# Use online JSON validator
-# Fix JSON syntax errors
-# Re-run validation
-authz validate --file=policies.json
+# Common issues:
+# - Trailing commas
+# - Missing quotes
+# - Unescaped characters
+```
+
+### Subject Format Errors
+
+**Problem:** `Invalid subject format`
+
+**Solution:**
+```bash
+# Wrong
+admin, invoice, create
+
+# Correct - must have role: or user: prefix
+role:admin, invoice, create
+user:42, invoice, create
+```
+
+### Effect Field Errors
+
+**Problem:** `Invalid effect: must be 'allow' or 'deny'`
+
+**Solution:**
+```json
+// Wrong
+{"subject": "role:admin", "resource": "invoice", "action": "create", "effect": "granted"}
+
+// Correct
+{"subject": "role:admin", "resource": "invoice", "action": "create", "effect": "allow"}
 ```
 
 ### Cache Issues
 
-**Problem:** Policies not updating
+**Problem:** Policies not updating after import
 
 **Solution:**
 ```bash
@@ -630,95 +923,46 @@ authz cache:clear --confirm
 # Rebuild graph
 authz graph:build --clear
 
-# Verify changes
-authz list --format=table
+# Verify
+authz list
 ```
 
-### Import Validation Failures
+### Graph Storage Errors
 
-**Problem:** Rules fail validation during import
+**Problem:** `Failed to write to graph storage`
 
 **Solution:**
 ```bash
-# Run validation with verbose output
-authz validate --file=policies.json
+# Check directory exists
+mkdir -p storage/
 
-# Check for missing fields
-# Ensure all rules have: subject, resource, action
+# Check permissions
+chmod 755 storage/
+chmod 644 storage/graph.json
 
-# Example valid rule:
-# {"subject": "role:admin", "resource": "invoice", "action": "create"}
+# Check disk space
+df -h
 ```
 
 ---
 
-## DSL Format Examples
+## Best Practices
 
-### JSON DSL Format
-
-```json
-[
-  {
-    "subject": "role:admin",
-    "resource": "invoice",
-    "action": "create"
-  },
-  {
-    "subject": "role:admin",
-    "resource": "invoice",
-    "action": "edit"
-  },
-  {
-    "subject": "role:accountant",
-    "resource": "invoice",
-    "action": "view"
-  },
-  {
-    "subject": "user:42",
-    "resource": "invoice:123",
-    "action": "delete",
-    "condition": "owner"
-  }
-]
-```
-
-### Line-Based DSL Format
-
-```
-# RBAC Rules
-role:admin, invoice, create
-role:admin, invoice, edit
-role:accountant, invoice, view
-
-# Ownership-based rule
-user:42, invoice:123, delete, owner
-```
-
----
-
-## Tips and Best Practices
-
-1. **Always validate before importing**: Use `--dry-run` or `validate` command
-2. **Backup before changes**: Export current policies before importing new ones
-3. **Use version control**: Track DSL files in Git for change history
-4. **Test in staging**: Import and test policies in staging environment first
-5. **Automate validation**: Add validation to CI/CD pipeline
-6. **Document policies**: Add comments to DSL files explaining complex rules
-7. **Regular exports**: Schedule regular policy exports for backup and audit
-8. **Monitor statistics**: Use `stats` command to track policy growth
-9. **Use filters**: Use filters in `list` and `export` for large policy sets
-10. **Clear caches after changes**: Always clear caches after policy updates
+1. **Always validate before importing** - Use `--dry-run` or `validate` command
+2. **Backup before changes** - Export current policies before modifications
+3. **Use version control** - Track DSL files in Git
+4. **Test in staging first** - Verify policies before production
+5. **Use strict mode in CI** - `--strict` catches potential issues
+6. **Document complex rules** - Add comments to DSL files
+7. **Regular audits** - Export and review policies periodically
+8. **Monitor statistics** - Track policy growth with `stats` command
+9. **Clear caches after changes** - Ensure new policies take effect
+10. **Use deny rules sparingly** - Prefer explicit allow rules
 
 ---
 
 ## Support
 
-For issues, feature requests, or questions:
-- GitHub: https://github.com/authza/authza/issues
+- GitHub Issues: https://github.com/authza/authza/issues
 - Documentation: https://docs.authza.dev
-
----
-
-## License
-
-MIT License - see LICENSE file for details
+- CLI Help: `authz --help` or `authz <command> --help`

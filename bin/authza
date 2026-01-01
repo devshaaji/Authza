@@ -27,10 +27,25 @@ if (!$autoloaded) {
 }
 
 try {
-    $configPath = getcwd() . '/authza_config.php';
-    $config = file_exists($configPath)
-        ? \Authza\Console\ConsoleConfig::fromFile($configPath)
-        : new \Authza\Console\ConsoleConfig();
+    // Look for config file in multiple locations
+    $configPaths = [
+        getcwd() . '/authza_config.php',           // Current working directory
+        getcwd() . '/authza.php',                   // Alternative name
+        __DIR__ . '/authza_config.php',             // Same directory as CLI script
+        __DIR__ . '/../authza_config.php',          // Project root
+    ];
+
+    $config = null;
+    foreach ($configPaths as $configPath) {
+        if (file_exists($configPath)) {
+            $config = \Authza\Console\ConsoleConfig::fromFile($configPath);
+            break;
+        }
+    }
+
+    if ($config === null) {
+        $config = new \Authza\Console\ConsoleConfig();
+    }
 
     $container = new \Authza\Console\ServiceContainer($config);
 
