@@ -85,14 +85,13 @@ class PermissionGraph
     public function invalidate(?string $subjectId = null): void
     {
         if ($subjectId === null) {
-            // Clear entire graph
+           
             $this->permissions = [];
             
             if ($this->cache !== null) {
                 $this->cache->delete(self::CACHE_KEY);
             }
         } else {
-            // Remove entries for specific subject
             foreach (array_keys($this->permissions) as $key) {
                 if (str_starts_with($key, $subjectId . ':')) {
                     unset($this->permissions[$key]);
@@ -101,6 +100,81 @@ class PermissionGraph
             
             $this->saveToCache();
         }
+    }
+
+    /**
+     * Clear the permission graph (alias for invalidate with no arguments)
+     *
+     * @param string|null $subjectId Optional subject ID to clear specific entries
+     * @return void
+     */
+    public function clear(?string $subjectId = null): void
+    {
+        $this->invalidate($subjectId);
+    }
+
+    /**
+     * Add a single rule to the permission graph
+     *
+     * @param array{subject: string, resource: string, action: string, effect?: string, condition?: mixed} $rule
+     * @return void
+     */
+    public function addRule(array $rule): void
+    {
+        $subject = $rule['subject'];
+        $resource = $rule['resource'];
+        $action = $rule['action'];
+        $effect = $rule['effect'] ?? 'allow';
+
+       
+        $subjectParts = explode(':', $subject, 2);
+        $subjectId = $subjectParts[1] ?? $subject;
+
+        $resourceParts = explode(':', $resource, 2);
+        $resourceType = $resourceParts[0];
+        $resourceId = $resourceParts[1] ?? '*';
+
+        $key = $this->makeKey($subjectId, $action, $resourceType, $resourceId);
+        $this->permissions[$key] = ($effect === 'allow');
+
+        $this->saveToCache();
+    }
+
+    /**
+     * Get statistics about the permission graph
+     *
+     * @return array{total_rules: int, by_resource_type: array<string, int>, by_subject_type: array<string, int>}
+     */
+    public function getStats(): array
+    {
+        $byResourceType = [];
+        $bySubjectType = [];
+
+        foreach ($this->permissions as $key => $allowed) {
+    
+            $parts = explode(':', $key, 4);
+
+            if (count($parts) === 4) {
+                $resourceType = $parts[2];
+                $subjectId = $parts[0];
+
+                if (!isset($byResourceType[$resourceType])) {
+                    $byResourceType[$resourceType] = 0;
+                }
+                $byResourceType[$resourceType]++;
+
+                if (!isset($bySubjectType[$subjectId])) {
+                    $bySubjectType[$subjectId] = 0;
+                }
+                $bySubjectType[$subjectId]++;
+            }
+        }
+
+        return [
+            'total_rules' => count($this->permissions),
+            'by_resource_type' => $byResourceType,
+            'by_subject_type' => $bySubjectType,
+        ];
     }
 
     /**
@@ -150,6 +224,33 @@ class PermissionGraph
     }
 
     /**
+     * Get all rules in the permission graph
+     *
+     * @return array<array<string, mixed>> Array of rule arrays with subject, resource, action, condition keys
+     */
+    public function getRules(): array
+    {
+        $rules = [];
+        
+        foreach ($this->permissions as $key => $allowed) {
+            // Parse key format: subjectId:action:resourceType:resourceId
+            $parts = explode(':', $key, 4);
+            
+            if (count($parts) === 4) {
+                $rules[] = [
+                    'subject' => $parts[0],
+                    'resource' => $parts[2] . ($parts[3] !== '*' ? ':' . $parts[3] : ''),
+                    'action' => $parts[1],
+                    'condition' => null,
+                    'effect' => $allowed ? 'allow' : 'deny',
+                ];
+            }
+        }
+        
+        return $rules;
+    }
+
+    /**
      * Precompute permissions from DSL rules (for DSL support)
      * 
      * DSL rules format: [['subject' => 'role:admin', 'resource' => 'invoice', 'action' => 'create', 'condition' => null, 'effect' => 'allow'], ...]
@@ -160,8 +261,6 @@ class PermissionGraph
     public function precomputeFromDsl(array $dslRules): void
     {
         foreach ($dslRules as $rule) {
-            // DSL format uses subject:resource:action format where subject is like "role:admin" or "user:123"
-            // We need to map this to the Authorization Engine format
             $subject = $rule['subject'];
             $resource = $rule['resource'];
             $action = $rule['action'];

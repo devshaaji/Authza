@@ -58,8 +58,23 @@ class GraphBuildCommand extends Command
             }
 
             if ($source) {
-                $parser = $this->container->getDSLParser();
-                $rules = $parser->parseFile($source);
+                // Choose parser based on file extension
+                $extension = strtolower(pathinfo($source, PATHINFO_EXTENSION));
+                $parser = $extension === 'json' 
+                    ? $this->container->getJsonParser() 
+                    : $this->container->getLineParser();
+                
+                // Read file and parse content
+                if (!file_exists($source)) {
+                    throw new \RuntimeException("File not found: {$source}");
+                }
+                
+                $content = file_get_contents($source);
+                if ($content === false) {
+                    throw new \RuntimeException("Failed to read file: {$source}");
+                }
+                
+                $rules = $parser->parse($content);
 
                 $progress = new ProgressHelper($output);
                 if ($verbose) {
