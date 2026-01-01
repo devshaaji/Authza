@@ -1,5 +1,4 @@
-# Authza
-# PHP Authorization Engine (Vendor Project)
+# PHP Authorization Engine (Authza)
 
 A modern, plug-and-play **authorization engine for PHP** designed to be **scalable, framework-agnostic, and developer-friendly**. This library fills the gaps left by existing solutions like Casbin and Laravel Gates by providing **precomputed permission graphs, PSR-compliant caching and logging, class-based context-aware policies, and quickStart defaults**.
 
