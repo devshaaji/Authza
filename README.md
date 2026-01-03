@@ -1,4 +1,4 @@
-# Authza — PHP Authorization Engine
+# PHP Authorization Engine
 
 Authza is a **high-performance, framework-agnostic authorization engine for PHP**.
 
