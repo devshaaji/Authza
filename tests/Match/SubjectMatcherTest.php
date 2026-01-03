@@ -86,7 +86,7 @@ class SubjectMatcherTest extends TestCase
         $this->assertFalse($this->matcher->matches('', $this->user));
     }
 
-    public function testMatchesUnknownType(): void
+    public function testMatchesUnknownTypeDoesNotMatch(): void
     {
         $this->assertFalse($this->matcher->matches('group:developers', $this->user));
     }
@@ -96,7 +96,7 @@ class SubjectMatcherTest extends TestCase
         $userWithIntId = new class implements SubjectInterface {
             public function getId(): string|int
             {
-                return 42; // int instead of string
+                return 42;
             }
 
             public function getRoles(): array
@@ -111,5 +111,77 @@ class SubjectMatcherTest extends TestCase
         };
 
         $this->assertTrue($this->matcher->matches('user:42', $userWithIntId));
+    }
+
+    public function testMatchesGlobalWildcard(): void
+    {
+        $this->assertTrue($this->matcher->matches('*', $this->user));
+        
+        $userWithoutRoles = new class implements SubjectInterface {
+            public function getId(): string|int
+            {
+                return '99';
+            }
+
+            public function getRoles(): array
+            {
+                return [];
+            }
+
+            public function getAttributes(): array
+            {
+                return [];
+            }
+        };
+        
+        $this->assertTrue($this->matcher->matches('*', $userWithoutRoles));
+    }
+
+    public function testMatchesValueWildcard(): void
+    {
+        $this->assertTrue($this->matcher->matches('*:admin', $this->user));
+        $this->assertTrue($this->matcher->matches('*:accountant', $this->user));
+        $this->assertTrue($this->matcher->matches('*:42', $this->user));
+        $this->assertFalse($this->matcher->matches('*:manager', $this->user));
+    }
+
+    public function testBuildUserSubjects(): void
+    {
+        $subjects = $this->matcher->buildUserSubjects($this->user);
+        
+        $this->assertContains('user:42', $subjects);
+        $this->assertContains('role:admin', $subjects);
+        $this->assertContains('role:accountant', $subjects);
+        $this->assertCount(3, $subjects);
+    }
+
+    public function testMatchesSubjectStringExact(): void
+    {
+        $this->assertTrue($this->matcher->matchesSubjectString('user:42', 'user:42'));
+        $this->assertTrue($this->matcher->matchesSubjectString('role:admin', 'role:admin'));
+        $this->assertFalse($this->matcher->matchesSubjectString('user:42', 'user:99'));
+    }
+
+    public function testMatchesSubjectStringWildcard(): void
+    {
+        $this->assertTrue($this->matcher->matchesSubjectString('user:*', 'user:42'));
+        $this->assertTrue($this->matcher->matchesSubjectString('user:*', 'user:99'));
+        $this->assertTrue($this->matcher->matchesSubjectString('*:admin', 'role:admin'));
+        $this->assertTrue($this->matcher->matchesSubjectString('*', 'user:42'));
+        $this->assertTrue($this->matcher->matchesSubjectString('*:*', 'user:42'));
+    }
+
+    public function testMatchesSubjectStringSegmentMismatch(): void
+    {
+        $this->assertFalse($this->matcher->matchesSubjectString('user:*', 'tenant:acme:user:42'));
+        $this->assertFalse($this->matcher->matchesSubjectString('*:*', 'a:b:c'));
+    }
+
+    public function testMatchesSubjectStringMultiSegment(): void
+    {
+        $this->assertTrue($this->matcher->matchesSubjectString('tenant:acme:user:42', 'tenant:acme:user:42'));
+        $this->assertTrue($this->matcher->matchesSubjectString('tenant:*:user:42', 'tenant:acme:user:42'));
+        $this->assertTrue($this->matcher->matchesSubjectString('tenant:acme:*:*', 'tenant:acme:user:42'));
+        $this->assertFalse($this->matcher->matchesSubjectString('tenant:*:user:42', 'tenant:acme:user:99'));
     }
 }

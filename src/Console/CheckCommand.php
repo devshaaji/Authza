@@ -114,14 +114,19 @@ class CheckCommand extends Command
                 {
                 }
 
-                public function getType(): string
+                public function getResourceType(): string
                 {
                     return $this->type;
                 }
 
-                public function getId(): string|int|null
+                public function getResourceId(): string|int
                 {
-                    return $this->id;
+                    return $this->id ?? '';
+                }
+
+                public function getOwnerId(): string|int|null
+                {
+                    return null;
                 }
 
                 public function getAttributes(): array

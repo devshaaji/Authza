@@ -58,6 +58,7 @@ class CacheClearCommand extends Command
                 false
             );
 
+            /** @var \Symfony\Component\Console\Helper\QuestionHelper $questionHelper */
             $questionHelper = $this->getHelper('question');
             if (!$questionHelper->ask($input, $output, $question)) {
                 $helper->warning('Cache clear cancelled');

@@ -1,0 +1,66 @@
+[
+  {
+    "subject": "role:admin",
+    "resource": "invoice",
+    "action": "*",
+    "effect": "allow",
+    "description": "Admins have full access to invoices"
+  },
+  {
+    "subject": "role:admin",
+    "resource": "document",
+    "action": "*",
+    "effect": "allow",
+    "description": "Admins have full access to documents"
+  },
+  {
+    "subject": "role:admin",
+    "resource": "project",
+    "action": "*",
+    "effect": "allow",
+    "description": "Admins have full access to projects"
+  },
+  {
+    "subject": "role:manager",
+    "resource": "invoice",
+    "action": "approve",
+    "effect": "allow",
+    "description": "Managers can approve invoices"
+  },
+  {
+    "subject": "role:accountant",
+    "resource": "invoice",
+    "action": "view",
+    "effect": "allow",
+    "description": "Accountants can view invoices"
+  },
+  {
+    "subject": "role:accountant",
+    "resource": "invoice",
+    "action": "edit",
+    "condition": "status!=paid",
+    "effect": "allow",
+    "description": "Accountants can edit unpaid invoices"
+  },
+  {
+    "subject": "role:intern",
+    "resource": "invoice",
+    "action": "delete",
+    "effect": "deny",
+    "description": "Interns cannot delete invoices"
+  },
+  {
+    "subject": "role:intern",
+    "resource": "document",
+    "action": "delete",
+    "effect": "deny",
+    "description": "Interns cannot delete documents"
+  },
+  {
+    "subject": "role:intern",
+    "resource": "project",
+    "action": "*",
+    "effect": "deny",
+    "description": "Interns have no project access"
+  }
+]

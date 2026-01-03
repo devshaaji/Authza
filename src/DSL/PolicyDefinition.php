@@ -11,6 +11,12 @@ namespace Authza\DSL;
  */
 final class PolicyDefinition
 {
+    public string $subject;
+    public string $resource;
+    public string $action;
+    public ?string $condition;
+    public string $effect;
+
     /**
      * Create a new policy definition
      *
@@ -21,15 +27,21 @@ final class PolicyDefinition
      * @param string $effect Permission effect - either 'allow' or 'deny'
      */
     public function __construct(
-        public readonly string $subject,
-        public readonly string $resource,
-        public readonly string $action,
-        public readonly ?string $condition = null,
-        public readonly string $effect = 'allow'
+        string $subject,
+        string $resource,
+        string $action,
+        ?string $condition = null,
+        string $effect = 'allow'
     ) {
         if (!in_array($effect, ['allow', 'deny'], true)) {
             throw new \InvalidArgumentException("Effect must be 'allow' or 'deny', got: {$effect}");
         }
+
+        $this->subject = $subject;
+        $this->resource = $resource;
+        $this->action = $action;
+        $this->condition = $condition;
+        $this->effect = $effect;
     }
 
     /**

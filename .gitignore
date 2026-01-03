@@ -38,3 +38,4 @@ composer.phar
 # Build artifacts
 /build/
 /dist/
+authza_exploit.php

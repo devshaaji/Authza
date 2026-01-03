@@ -95,7 +95,7 @@ class AuthorizationTest extends TestCase
         $graph = new PermissionGraph($cache);
 
         $permissions = [
-            ['subjectId' => '1', 'action' => 'view', 'resourceType' => 'user', 'resourceId' => '2', 'allowed' => true],
+            ['subjectId' => 'user:1', 'action' => 'view', 'resourceType' => 'user', 'resourceId' => '2', 'allowed' => true],
         ];
         $graph->precompute($permissions);
 
@@ -175,12 +175,13 @@ class AuthorizationTest extends TestCase
         $this->assertInstanceOf(Authorization::class, $authz);
     }
 
-    public function testQuickStartWithAutoDiscovery(): void
+    public function testQuickStartWithExplicitPolicies(): void
     {
-        $policyDir = __DIR__ . '/../../src/Policies';
         $authz = Authorization::quickStart([
-            'policyNamespace' => 'Authza\\Policies',
-            'policyDirectory' => $policyDir,
+            'policies' => [
+                'user' => new UserPolicy(),
+                'invoice' => new InvoicePolicy(),
+            ],
         ]);
 
         $admin = new MockSubject('1', ['admin']);

@@ -75,7 +75,8 @@ class LineDslParser implements DslParserInterface
         $subject = $parts[0];
         $resource = $parts[1];
         $action = $parts[2];
-        $condition = isset($parts[3]) ? $parts[3] : null;
+        $condition = isset($parts[3]) && $parts[3] !== '' ? $parts[3] : null;
+        $effect = isset($parts[4]) && $parts[4] !== '' ? $parts[4] : 'allow';
         
         // Validate required fields are not empty
         if (empty($subject)) {
@@ -96,12 +97,20 @@ class LineDslParser implements DslParserInterface
                 "Invalid subject format: Must be 'role:NAME' or 'user:ID' (got: {$subject})"
             );
         }
+
+        // Validate effect
+        if (!in_array($effect, ['allow', 'deny'], true)) {
+            throw new DslParseException(
+                "Invalid effect: Must be 'allow' or 'deny' (got: {$effect})"
+            );
+        }
         
         return [
             'subject' => $subject,
             'resource' => $resource,
             'action' => $action,
-            'condition' => $condition !== '' ? $condition : null,
+            'condition' => $condition,
+            'effect' => $effect,
         ];
     }
 }

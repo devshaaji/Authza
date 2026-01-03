@@ -1,50 +1,101 @@
-# DSL (Domain-Specific Language) Documentation
+# Authza DSL Documentation
 
-## Overview
+Complete guide to the Authza Domain-Specific Language for defining authorization policies.
 
-The Authza DSL provides a human-readable way to define authorization policies without writing PHP code. This enables administrators, DevOps engineers, and non-PHP developers to manage permissions effectively.
+---
 
 ## Table of Contents
 
+- [Overview](#overview)
 - [Quick Start](#quick-start)
 - [DSL Formats](#dsl-formats)
-- [Subject Formats](#subject-formats)
-- [Resource Formats](#resource-formats)
+- [Policy Structure](#policy-structure)
+- [Subject Patterns](#subject-patterns)
+- [Resource Patterns](#resource-patterns)
 - [Actions](#actions)
+- [Effects (Allow/Deny)](#effects-allowdeny)
 - [Conditions](#conditions)
+- [PolicyDefinition DTO](#policydefinition-dto)
+- [Policy Sources](#policy-sources)
 - [Import & Export](#import--export)
 - [Validation](#validation)
-- [Integration](#integration)
+- [Integration with Authorization Engine](#integration-with-authorization-engine)
 - [Best Practices](#best-practices)
 - [Migration Guide](#migration-guide)
+- [Examples](#examples)
+- [API Reference](#api-reference)
+
+---
+
+## Overview
+
+The Authza DSL provides a human-readable way to define authorization policies without writing PHP code. This enables:
+
+- **Administrators** to manage permissions without developer involvement
+- **DevOps engineers** to deploy policy changes via CI/CD
+- **Non-PHP developers** to integrate with the authorization system
+- **Auditors** to review and understand access controls
+
+### Key Features
+
+- ✅ Two formats: JSON and line-based
+- ✅ Allow/Deny rules with conflict resolution
+- ✅ Conditional rules (ownership, attributes)
+- ✅ Wildcard patterns for subjects and resources
+- ✅ Validation with detailed error reporting
+- ✅ Import/Export capabilities
+- ✅ CLI tools for management
 
 ---
 
 ## Quick Start
 
-### Basic Example
+### 1. Create a Policy File
 
-Create a file `permissions.dsl`:
-
+**JSON format (`policies.json`):**
+```json
+[
+  {"subject": "role:admin", "resource": "invoice", "action": "create", "effect": "allow"},
+  {"subject": "role:admin", "resource": "invoice", "action": "edit", "effect": "allow"},
+  {"subject": "role:accountant", "resource": "invoice", "action": "view", "effect": "allow"},
+  {"subject": "user:*", "resource": "invoice", "action": "view", "condition": "owner", "effect": "allow"}
+]
 ```
-# Admin has full access to invoices
+
+**Line format (`policies.dsl`):**
+```
 role:admin, invoice, create
 role:admin, invoice, edit
-role:admin, invoice, delete
-role:admin, invoice, view
+role:accountant, invoice, view
+user:*, invoice, view, owner
 ```
 
-Import it:
+### 2. Import via CLI
+
+```bash
+# Validate first
+./vendor/bin/authz validate --file=policies.json --strict
+
+# Import
+./vendor/bin/authz import --file=policies.json
+
+# Build permission graph
+./vendor/bin/authz graph:build
+```
+
+### 3. Import via PHP
 
 ```php
+<?php
 use Authza\Core\Graph\PermissionGraph;
 use Authza\DSL\DslImporter;
+use Authza\DSL\JsonDslParser;
 use Authza\Adapters\Cache\ArrayCache;
 
 $graph = new PermissionGraph(new ArrayCache());
 $importer = new DslImporter($graph);
 
-$count = $importer->importFromFile('permissions.dsl');
+$count = $importer->importFromFile('policies.json');
 echo "Imported {$count} rules\n";
 ```
 
@@ -52,144 +103,203 @@ echo "Imported {$count} rules\n";
 
 ## DSL Formats
 
-### Line-Based Format
-
-Simple, readable format with one rule per line.
-
-**Syntax:**
-```
-subject, resource, action[, condition]
-```
-
-**Example:**
-```
-role:admin, invoice, create
-role:accountant, invoice, view
-user:42, invoice:123, delete, owner
-```
-
-**Features:**
-- Comments: Lines starting with `#`
-- Empty lines are ignored
-- Whitespace is automatically trimmed
-- Condition is optional
-
 ### JSON Format
 
-Structured format ideal for programmatic generation and API integration.
+Structured format ideal for programmatic generation, APIs, and complex policies.
 
-**Syntax:**
 ```json
 [
   {
     "subject": "role:admin",
     "resource": "invoice",
     "action": "create",
-    "condition": "optional"
+    "effect": "allow"
+  },
+  {
+    "subject": "role:accountant",
+    "resource": "invoice",
+    "action": "edit",
+    "condition": "status!=paid",
+    "effect": "allow"
+  },
+  {
+    "subject": "user:*",
+    "resource": "invoice",
+    "action": "delete",
+    "condition": "owner",
+    "effect": "allow"
+  },
+  {
+    "subject": "role:intern",
+    "resource": "invoice",
+    "action": "delete",
+    "effect": "deny"
   }
 ]
 ```
 
+### Line-Based Format
+
+Simple, readable format with one rule per line. Great for manual editing.
+
+**Syntax:**
+```
+subject, resource, action[, condition[, effect]]
+```
+
 **Example:**
-```json
-[
-  {
-    "subject": "role:admin",
-    "resource": "invoice",
-    "action": "create"
-  },
-  {
-    "subject": "user:42",
-    "resource": "invoice:123",
-    "action": "delete",
-    "condition": "owner"
-  }
-]
+```
+# Comments start with #
+# Empty lines are ignored
+
+# === Administrator Rules ===
+role:admin, invoice, create
+role:admin, invoice, edit
+role:admin, invoice, delete
+role:admin, invoice, view
+
+# === Accountant Rules ===
+role:accountant, invoice, view
+role:accountant, invoice, edit, status!=paid, allow
+
+# === Ownership Rules ===
+user:*, invoice, view, owner
+user:*, invoice, edit, owner
+user:*, invoice, delete, owner, allow
+
+# === Deny Rules ===
+role:intern, invoice, delete, , deny
+```
+
+**Features:**
+- Comments: Lines starting with `#`
+- Empty lines are ignored
+- Whitespace is automatically trimmed
+- Condition and effect are optional
+- Use empty condition with `, ,` syntax when specifying effect only
+
+---
+
+## Policy Structure
+
+Each policy rule consists of five components:
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `subject` | ✅ Yes | - | Who is requesting access |
+| `resource` | ✅ Yes | - | What is being accessed |
+| `action` | ✅ Yes | - | Operation being performed |
+| `condition` | ❌ No | `null` | Context-aware condition |
+| `effect` | ❌ No | `allow` | Whether to allow or deny |
+
+### PolicyDefinition DTO
+
+All DSL rules are converted to `PolicyDefinition` objects internally:
+
+```php
+<?php
+namespace Authza\DSL;
+
+final class PolicyDefinition
+{
+    public string $subject;    // role:admin | user:42 | user:*
+    public string $resource;   // invoice | invoice:123 | invoice:*
+    public string $action;     // create | edit | delete | view
+    public ?string $condition; // owner | department==finance | null
+    public string $effect;     // allow | deny
+}
 ```
 
 ---
 
-## Subject Formats
+## Subject Patterns
 
 Subjects identify **who** is requesting access.
+
+> **Important Security Note:** Subject identifiers preserve their type prefix (`role:` or `user:`) internally to prevent authorization bypass. This ensures that a user with ID `developer` cannot accidentally gain permissions meant for `role:developer`. The system stores and checks permissions using the full prefixed identifier (e.g., `role:developer:create:invoice:*`).
 
 ### Role-Based Subject
 
 Format: `role:ROLE_NAME`
 
-**Examples:**
 ```
 role:admin, invoice, create
 role:accountant, invoice, view
 role:manager, invoice, approve
+role:super_admin, *, *
 ```
 
 ### User-Based Subject
 
 Format: `user:USER_ID`
 
-**Examples:**
 ```
 user:42, invoice:123, edit
 user:999, client:456, view
+user:1, *, *, , allow
 ```
 
-### Wildcard Subject
+### Wildcard Subjects
 
-Format: `user:*` or `role:*`
+| Pattern | Description |
+|---------|-------------|
+| `user:*` | Any authenticated user |
+| `role:*` | Any user with at least one role |
 
-Matches any user or role of that type.
-
-**Examples:**
 ```
 # Any user can view their own invoices
 user:*, invoice, view, owner
 
 # Any user can edit their own profile
 user:*, user, edit, owner
+
+# Any role can view public resources
+role:*, public, view
 ```
 
 ---
 
-## Resource Formats
+## Resource Patterns
 
 Resources identify **what** is being accessed.
 
-### Generic Resource
+### Type-Level Resource
 
 Format: `RESOURCE_TYPE`
 
 Applies to all instances of a resource type.
 
-**Examples:**
 ```
 role:admin, invoice, create
 role:accountant, client, view
+role:manager, report, generate
 ```
 
-### Specific Resource Instance
+### Instance-Level Resource
 
 Format: `RESOURCE_TYPE:RESOURCE_ID`
 
 Applies to a specific resource instance.
 
-**Examples:**
 ```
 user:42, invoice:123, delete
 user:99, client:456, edit
+role:admin, system:config, edit
 ```
 
-### Wildcard Resource
+### Wildcard Resources
 
-Format: `*` or `RESOURCE_TYPE:*`
+| Pattern | Description |
+|---------|-------------|
+| `invoice:*` | Any invoice instance |
+| `*` | Any resource (use carefully) |
 
-**Examples:**
 ```
-# Super admin can do anything
-role:superadmin, *, *
-
-# Manager can view all invoices
+# Manager can view all invoice instances
 role:manager, invoice:*, view
+
+# Super admin can do anything (dangerous!)
+role:superadmin, *, *
 ```
 
 ---
@@ -200,31 +310,82 @@ Actions define **what operation** is being performed.
 
 ### Standard Actions
 
-Common actions across most applications:
-
-- `create` - Create new resources
-- `read` / `view` - Read/view resources
-- `edit` / `update` - Modify existing resources
-- `delete` - Remove resources
-- `approve` - Approve requests or documents
-- `reject` - Reject requests or documents
-
-**Examples:**
-```
-role:admin, invoice, create
-role:accountant, invoice, view
-role:manager, invoice, approve
-```
+| Action | Description |
+|--------|-------------|
+| `create` | Create new resources |
+| `read` | Read resource data |
+| `view` | View/display resources |
+| `edit` | Modify existing resources |
+| `update` | Update resources (alias for edit) |
+| `delete` | Remove resources |
+| `approve` | Approve requests/documents |
+| `reject` | Reject requests/documents |
 
 ### Custom Actions
 
-You can define custom actions for your application:
+Define any action your application needs:
 
 ```
 role:auditor, invoice, audit
 role:accountant, invoice, export
 role:manager, invoice, finalize
+role:support, ticket, escalate
+role:editor, article, publish
 ```
+
+### Wildcard Action
+
+```
+# Admin can perform any action on invoices
+role:admin, invoice, *
+```
+
+---
+
+## Effects (Allow/Deny)
+
+The `effect` field determines whether a matching rule grants or denies access.
+
+### Allow (Default)
+
+```json
+{"subject": "role:admin", "resource": "invoice", "action": "create", "effect": "allow"}
+```
+
+```
+role:admin, invoice, create, , allow
+role:admin, invoice, create              # effect defaults to "allow"
+```
+
+### Deny
+
+Deny rules explicitly block access, even if other rules would allow it.
+
+```json
+{"subject": "role:admin", "resource": "invoice:999", "action": "delete", "effect": "deny"}
+```
+
+```
+role:admin, invoice:999, delete, , deny
+role:intern, invoice, delete, , deny
+```
+
+### Conflict Resolution
+
+When multiple rules match, the following precedence applies:
+
+1. **Deny takes precedence** - Any matching deny rule blocks access
+2. **Specific over general** - `invoice:123` beats `invoice`
+3. **User over role** - `user:42` beats `role:admin`
+
+**Example:**
+```json
+[
+  {"subject": "role:admin", "resource": "invoice", "action": "*", "effect": "allow"},
+  {"subject": "role:admin", "resource": "invoice:999", "action": "delete", "effect": "deny"}
+]
+```
+Result: Admins can do anything with invoices EXCEPT delete invoice #999.
 
 ---
 
@@ -234,65 +395,221 @@ Conditions add **context-aware** authorization rules.
 
 ### Owner Condition
 
-Format: `owner`
-
 Grants permission only if the user owns the resource.
 
-**Examples:**
 ```
-# Users can edit their own invoices
 user:*, invoice, edit, owner
-
-# Users can view their own profile
-user:*, user, view, owner
+user:*, invoice, delete, owner
+user:*, profile, edit, owner
 ```
 
-**Context Required:**
+**Usage:**
 ```php
-$context = ['is_owner' => true];
-$graph->hasPermission('user:123', 'invoice', 'edit', $context);
+$context = ['is_owner' => ($invoice->user_id === $user->id)];
+$authz->can($user, 'edit', $invoice, $context);
 ```
 
 ### Equality Condition
 
 Format: `KEY==VALUE`
 
-Grants permission when context key equals value.
-
-**Examples:**
 ```
-# Managers can approve invoices in their department
 role:manager, invoice, approve, department==finance
-
-# Regional managers can access specific regions
-role:regional_manager, report, view, region==west
+role:regional, report, view, region==west
+role:support, ticket, edit, priority==high
 ```
 
-**Context Required:**
+**Usage:**
 ```php
-$context = ['department' => 'finance'];
-$graph->hasPermission('role:manager', 'invoice', 'approve', $context);
+$context = ['department' => $user->department];
+$authz->can($user, 'approve', $invoice, $context);
 ```
 
 ### Inequality Condition
 
 Format: `KEY!=VALUE`
 
-Grants permission when context key does NOT equal value.
-
-**Examples:**
 ```
-# Accountants can only edit unpaid invoices
 role:accountant, invoice, edit, status!=paid
-
-# Editors cannot modify published articles
 role:editor, article, edit, status!=published
+role:support, ticket, close, status!=escalated
 ```
 
-**Context Required:**
+**Usage:**
 ```php
-$context = ['status' => 'draft'];
-$graph->hasPermission('role:accountant', 'invoice', 'edit', $context);
+$context = ['status' => $invoice->status];
+$authz->can($user, 'edit', $invoice, $context);
+```
+
+### Custom Conditions
+
+Implement `ConditionResolverInterface` for complex conditions:
+
+```php
+<?php
+use Authza\Condition\ConditionResolverInterface;
+
+class TimeConditionResolver implements ConditionResolverInterface
+{
+    public function supports(string $condition): bool
+    {
+        return str_starts_with($condition, 'time.');
+    }
+
+    public function evaluate(
+        string $condition,
+        SubjectInterface $user,
+        ResourceInterface $resource,
+        array $context = []
+    ): bool {
+        // Parse: time.between(09:00,17:00)
+        if (preg_match('/^time\.between\((\d{2}:\d{2}),(\d{2}:\d{2})\)$/', $condition, $matches)) {
+            $now = date('H:i');
+            return $now >= $matches[1] && $now <= $matches[2];
+        }
+        return false;
+    }
+}
+```
+
+**DSL usage:**
+```
+role:support, ticket, edit, time.between(09:00,17:00)
+```
+
+---
+
+## PolicyDefinition DTO
+
+The `PolicyDefinition` class is the canonical format for all DSL policies.
+
+### Creating PolicyDefinitions
+
+```php
+<?php
+use Authza\DSL\PolicyDefinition;
+
+// Via constructor
+$policy = new PolicyDefinition(
+    subject: 'role:admin',
+    resource: 'invoice',
+    action: 'create',
+    condition: null,
+    effect: 'allow'
+);
+
+// From array
+$policy = PolicyDefinition::fromArray([
+    'subject' => 'role:admin',
+    'resource' => 'invoice',
+    'action' => 'create',
+    'condition' => null,
+    'effect' => 'allow'
+]);
+
+// To array
+$array = $policy->toArray();
+// ['subject' => 'role:admin', 'resource' => 'invoice', 'action' => 'create', 'effect' => 'allow']
+```
+
+### Validation
+
+The constructor validates the `effect` field:
+
+```php
+// Throws InvalidArgumentException
+$policy = new PolicyDefinition('role:admin', 'invoice', 'create', null, 'granted');
+// Error: Effect must be 'allow' or 'deny', got: granted
+```
+
+---
+
+## Policy Sources
+
+Use `PolicySourceInterface` to load policies from various sources.
+
+### PolicySourceInterface
+
+```php
+<?php
+namespace Authza\DSL;
+
+interface PolicySourceInterface
+{
+    /**
+     * @return array<PolicyDefinition>
+     */
+    public function load(): array;
+}
+```
+
+### DslPolicySource
+
+Load policies from DSL files:
+
+```php
+<?php
+use Authza\DSL\DslPolicySource;
+use Authza\DSL\JsonDslParser;
+use Authza\DSL\LineDslParser;
+use Authza\DSL\DslValidator;
+
+// From JSON file
+$source = new DslPolicySource(
+    parser: new JsonDslParser(),
+    validator: new DslValidator(),  // Optional
+    filePath: 'policies.json'
+);
+$policies = $source->load();
+
+// From line-based file
+$source = new DslPolicySource(
+    parser: new LineDslParser(),
+    filePath: 'policies.dsl'
+);
+$policies = $source->load();
+
+// From string content
+$source = new DslPolicySource(
+    parser: new JsonDslParser(),
+    content: '[{"subject":"role:admin","resource":"invoice","action":"create"}]'
+);
+$policies = $source->load();
+```
+
+### Using with PolicyRegistry
+
+Policies are loaded immediately when you call `registerSource()`:
+
+```php
+<?php
+use Authza\Core\PolicyRegistry;
+use Authza\DSL\DslPolicySource;
+use Authza\DSL\JsonDslParser;
+use Authza\DSL\LineDslParser;
+
+$registry = new PolicyRegistry();
+
+// Register PHP-based policies
+$registry->register('invoice', new InvoicePolicy());
+$registry->register('user', new UserPolicy());
+
+// Register DSL sources - policies are loaded immediately!
+$registry->registerSource(new DslPolicySource(
+    new JsonDslParser(),
+    filePath: 'rbac_rules.json'
+));
+
+$registry->registerSource(new DslPolicySource(
+    new LineDslParser(),
+    filePath: 'ownership_rules.dsl'
+));
+
+// Policies are already available - no need to call loadAll()
+$dslPolicies = $registry->getDslPolicies();
+
+// If you need to reload all sources (e.g., after file changes)
+$registry->reloadAll();
 ```
 
 ---
@@ -301,72 +618,80 @@ $graph->hasPermission('role:accountant', 'invoice', 'edit', $context);
 
 ### Importing DSL Rules
 
-#### From String
+#### Via DslImporter
 
 ```php
-use Authza\DSL\LineDslParser;
-use Authza\DSL\JsonDslParser;
+<?php
 use Authza\DSL\DslImporter;
+use Authza\DSL\JsonDslParser;
+use Authza\DSL\LineDslParser;
 
-// Line-based DSL
-$dsl = "role:admin, invoice, create\nrole:accountant, invoice, view";
-$parser = new LineDslParser();
-$count = $importer->import($parser, $dsl);
+$importer = new DslImporter($graph);
 
-// JSON DSL
-$json = '[{"subject":"role:admin","resource":"invoice","action":"create"}]';
-$parser = new JsonDslParser();
-$count = $importer->import($parser, $json);
+// From string
+$json = '[{"subject":"role:admin","resource":"invoice","action":"create","effect":"allow"}]';
+$count = $importer->import(new JsonDslParser(), $json);
+
+// From file (auto-detects format)
+$count = $importer->importFromFile('policies.json');  // JSON
+$count = $importer->importFromFile('policies.dsl');   // Line format
+$count = $importer->importFromFile('policies.txt');   // Line format
 ```
 
-#### From File
+#### Via DslPolicySource
 
 ```php
-// Auto-detects format by extension
-$count = $importer->importFromFile('policies.dsl');  // Line format
-$count = $importer->importFromFile('policies.json'); // JSON format
-$count = $importer->importFromFile('policies.txt');  // Line format
+<?php
+use Authza\DSL\DslPolicySource;
+use Authza\DSL\JsonDslParser;
+
+$source = new DslPolicySource(
+    parser: new JsonDslParser(),
+    filePath: 'policies.json'
+);
+
+// Get PolicyDefinition objects
+$policies = $source->load();
+
+// Add to graph
+foreach ($policies as $policy) {
+    $graph->addRule($policy->toArray());
+}
 ```
 
-### Exporting Permissions
-
-#### To String
+### Exporting Policies
 
 ```php
+<?php
 use Authza\DSL\DslExporter;
 
-$exporter = new DslExporter($graph);
+$exporter = new DslExporter($policies);  // Array of PolicyDefinition
 
-// Export to JSON
+// Export to JSON string
 $json = $exporter->export('json');
 
-// Export to line format
+// Export to line format string
 $lines = $exporter->export('line');
-```
 
-#### To File
-
-```php
-// Export to JSON file
-$exporter->exportToFile('backup.json', 'json');
-
-// Export to line-based file
-$exporter->exportToFile('backup.dsl', 'line');
+// Export includes effect field
+// JSON: {"subject":"role:admin","resource":"invoice","action":"create","effect":"allow"}
+// Line: role:admin, invoice, create, , allow
 ```
 
 ---
 
 ## Validation
 
-### Validating DSL Before Import
-
-Always validate DSL content before importing to catch errors early.
+### Using DslValidator
 
 ```php
+<?php
 use Authza\DSL\DslValidator;
+use Authza\DSL\JsonDslParser;
 
 $validator = new DslValidator();
-$result = $validator->validate($parser, $dslContent);
+$parser = new JsonDslParser();
+$result = $validator->validate($parser, $jsonContent);
 
 if (!$result->isValid()) {
     echo "Validation failed:\n";
@@ -383,246 +708,225 @@ if ($result->hasWarnings()) {
     }
 }
 
-// Safe to import
-$importer->import($parser, $dslContent);
+echo "Validation passed!\n";
 ```
 
 ### Validation Checks
 
-The validator checks for:
+| Check | Type | Description |
+|-------|------|-------------|
+| Syntax errors | Error | Malformed JSON/DSL |
+| Invalid subject | Error | Must be `role:*` or `user:*` |
+| Missing fields | Error | subject, resource, action required |
+| Invalid effect | Error | Must be `allow` or `deny` |
+| Empty identifier | Error | `role:` or `user:` without value |
+| Duplicate rules | Warning | Same rule defined twice |
+| Conflicting rules | Warning | Wildcard vs specific conflicts |
+| Non-standard resource | Warning | Unknown resource type |
+| Non-standard action | Warning | Unknown action |
 
-1. **Syntax Errors** - Malformed DSL
-2. **Invalid Subjects** - Must be `role:*` or `user:*`
-3. **Missing Required Fields** - Subject, resource, action required
-4. **Duplicate Rules** - Same rule defined multiple times
-5. **Conflicting Rules** - Wildcard vs specific rules
-6. **Non-standard Resources/Actions** - Warnings for uncommon values
+### ValidationResult API
+
+```php
+$result->isValid();         // bool - no errors
+$result->hasWarnings();     // bool - has warnings
+$result->getErrors();       // array<string>
+$result->getWarnings();     // array<string>
+$result->getErrorCount();   // int
+$result->getWarningCount(); // int
+```
 
 ---
 
-## Integration
+## Integration with Authorization Engine
 
-### Integration with PermissionGraph
-
-DSL rules are imported into the `PermissionGraph` for fast permission lookups.
+### Building the Permission Graph
 
 ```php
+<?php
 use Authza\Core\Graph\PermissionGraph;
-use Authza\DSL\DslImporter;
+use Authza\Core\Authorization;
+use Authza\Core\PolicyRegistry;
+use Authza\DSL\DslPolicySource;
+use Authza\DSL\JsonDslParser;
+use Authza\Adapters\Cache\ArrayCache;
 
+// Create components
+$cache = new ArrayCache();
 $graph = new PermissionGraph($cache);
-$importer = new DslImporter($graph);
+$registry = new PolicyRegistry();
 
-// Import multiple DSL files
-$importer->importFromFile('rbac_rules.dsl');
-$importer->importFromFile('ownership_rules.dsl');
-$importer->importFromFile('context_rules.dsl');
+// Register DSL source
+$registry->registerSource(new DslPolicySource(
+    new JsonDslParser(),
+    filePath: 'policies.json'
+));
+
+// Load and build graph
+$policies = $registry->loadAll();
+foreach ($policies as $policy) {
+    $graph->addRule($policy->toArray());
+}
+
+// Create authorization instance
+$authz = new Authorization($registry, $cache, $logger, $graph);
 
 // Check permissions
-if ($graph->hasPermission('role:admin', 'invoice', 'create')) {
-    // Grant access
+if ($authz->can($user, 'edit', $invoice, $context)) {
+    // Allowed
 }
 ```
 
-### Mixing DSL and Class-Based Policies
+### Complete Flow
 
-DSL rules and PHP policies can coexist:
-
-```php
-// Import DSL rules
-$importer->importFromFile('basic_permissions.dsl');
-
-// Add programmatic rules
-$graph->addPermission('role:custom', 'resource', 'action', null);
-
-// Both are checked during authorization
 ```
-
-### Caching
-
-The `PermissionGraph` supports PSR-16 caching:
-
-```php
-use Authza\Adapters\Cache\ArrayCache;
-
-$cache = new ArrayCache();
-$graph = new PermissionGraph($cache);
-
-// Permissions are cached automatically
-$importer->importFromFile('policies.dsl');
+DSL File (JSON/Line)
+        ↓
+   DSL Parser (JsonDslParser / LineDslParser)
+        ↓
+   DslPolicySource
+        ↓
+   PolicyDefinition[] (canonical format)
+        ↓
+   PolicyRegistry::registerSource()
+        ↓
+   PermissionGraph::addRule()
+        ↓
+   Authorization::can() / authorize()
+        ↓
+   Result (allow/deny)
 ```
 
 ---
 
 ## Best Practices
 
-### 1. Start Simple
-
-Begin with basic RBAC rules:
+### 1. Use Explicit Effects
 
 ```
+# Good - clear intent
+role:admin, invoice, create, , allow
+role:intern, invoice, delete, , deny
+
+# Okay - defaults to allow
 role:admin, invoice, create
-role:admin, invoice, edit
-role:admin, invoice, delete
-role:admin, invoice, view
 ```
 
-### 2. Use Comments Liberally
+### 2. Organize by Purpose
 
 ```
-# === Admin Permissions ===
-role:admin, invoice, create
-role:admin, invoice, edit
+policies/
+├── rbac_rules.json       # Role-based rules
+├── ownership_rules.dsl   # Ownership conditions
+├── deny_rules.json       # Explicit denials
+└── context_rules.dsl     # Context-aware rules
+```
 
-# === Accountant Permissions ===
+### 3. Use Comments
+
+```
+# === Finance Department ===
+# Accountants can view all invoices
 role:accountant, invoice, view
+
+# Accountants can edit unpaid invoices only
 role:accountant, invoice, edit, status!=paid
+
+# === Restrictions ===
+# Interns cannot delete anything
+role:intern, invoice, delete, , deny
+role:intern, client, delete, , deny
 ```
 
-### 3. Group Related Rules
-
-Organize rules by role, resource, or purpose:
-
-```
-rbac_rules.dsl       # Basic RBAC permissions
-ownership_rules.dsl  # Ownership-based rules
-context_rules.dsl    # Context-aware rules
-```
-
-### 4. Validate Before Deployment
+### 4. Validate Before Deploying
 
 ```bash
-# Validate DSL before deploying
-php validate_policies.php policies.dsl
+# Always validate with strict mode in CI
+authz validate --file=policies.json --strict
+
+# Dry-run before importing
+authz import --file=policies.json --dry-run
 ```
 
-### 5. Version Control
+### 5. Version Control Policies
 
-Store DSL files in Git for:
-- Change tracking
-- Rollback capability
-- Audit trail
-- Collaboration
+```bash
+git add policies/
+git commit -m "Add accountant invoice permissions"
+git push
+```
 
-### 6. Use Specific Rules When Possible
+### 6. Use Deny Rules Sparingly
 
 ```
-# Prefer specific rules
+# Prefer: specific allow rules
 role:accountant, invoice, view
+role:accountant, invoice, edit
 
-# Over wildcards when possible
-user:*, *, view
+# Avoid: broad allow + deny exceptions
+role:accountant, invoice, *
+role:accountant, invoice, delete, , deny
 ```
 
 ### 7. Document Complex Conditions
 
 ```
-# Manager can approve invoices in their department
-# Requires: context['department'] = user's department
-role:manager, invoice, approve, department==finance
-```
-
-### 8. Regular Audits
-
-Periodically review and validate permissions:
-
-```php
-$exporter = new DslExporter($graph);
-$backup = $exporter->export('json');
-// Review and audit the backup
+# Time-based access for support team
+# Only during business hours (9 AM - 5 PM)
+# Requires: ConditionResolver for time.between()
+role:support, ticket, edit, time.between(09:00,17:00)
 ```
 
 ---
 
 ## Migration Guide
 
-### From Class-Based Policies to DSL
+### From PHP Policies to DSL
 
-#### Before (PHP Policy Class)
+#### Before (PHP)
 
 ```php
-class InvoicePolicy
+class InvoicePolicy implements PolicyInterface
 {
-    public function create(User $user): bool
+    public function can($user, $action, $resource, $context): bool
     {
-        return $user->hasRole('admin');
-    }
-    
-    public function view(User $user): bool
-    {
-        return $user->hasRole('admin') || $user->hasRole('accountant');
+        if ($user->hasRole('admin')) {
+            return true;
+        }
+        
+        if ($action === 'view' && $user->hasRole('accountant')) {
+            return true;
+        }
+        
+        if ($action === 'edit' && $user->hasRole('accountant')) {
+            return $resource->status !== 'paid';
+        }
+        
+        return $resource->user_id === $user->id;
     }
 }
 ```
 
 #### After (DSL)
 
-```
-# invoice_policy.dsl
-role:admin, invoice, create
-role:admin, invoice, view
-role:accountant, invoice, view
-```
-
-### Migrating Complex Policies
-
-#### Before
-
-```php
-public function edit(User $user, Invoice $invoice): bool
-{
-    // Admins can edit all
-    if ($user->hasRole('admin')) {
-        return true;
-    }
-    
-    // Accountants can edit unpaid invoices
-    if ($user->hasRole('accountant') && $invoice->status !== 'paid') {
-        return true;
-    }
-    
-    // Users can edit their own
-    return $invoice->user_id === $user->id;
-}
-```
-
-#### After
-
-```
-# Admin can edit all invoices
-role:admin, invoice, edit
-
-# Accountants can edit unpaid invoices
-role:accountant, invoice, edit, status!=paid
-
-# Users can edit their own invoices
-user:*, invoice, edit, owner
+```json
+[
+  {"subject": "role:admin", "resource": "invoice", "action": "*", "effect": "allow"},
+  {"subject": "role:accountant", "resource": "invoice", "action": "view", "effect": "allow"},
+  {"subject": "role:accountant", "resource": "invoice", "action": "edit", "condition": "status!=paid", "effect": "allow"},
+  {"subject": "user:*", "resource": "invoice", "action": "*", "condition": "owner", "effect": "allow"}
+]
 ```
 
 ### Migration Steps
 
-1. **Audit existing policies** - List all current permissions
-2. **Convert to DSL format** - Transform PHP logic to DSL rules
-3. **Validate DSL** - Use `DslValidator` to check syntax
-4. **Test in staging** - Verify behavior matches original
-5. **Gradual rollout** - Migrate one resource at a time
+1. **Audit** - Document all existing permissions
+2. **Convert** - Transform PHP logic to DSL rules
+3. **Validate** - Use `DslValidator` to check syntax
+4. **Test** - Verify behavior matches original
+5. **Deploy** - Gradual rollout, one resource at a time
 6. **Monitor** - Check logs for authorization issues
-7. **Decommission old policies** - Remove PHP policy classes
-
-### Handling Edge Cases
-
-Some complex logic may require PHP:
-
-```php
-// Complex business logic
-if ($user->subscription->isActive() && 
-    $user->accountAge() > 30 &&
-    !$resource->hasRestriction('geographic')) {
-    return true;
-}
-```
-
-**Solution:** Keep complex policies in PHP, use DSL for simple rules.
+7. **Cleanup** - Remove PHP policy classes
 
 ---
 
@@ -630,116 +934,79 @@ if ($user->subscription->isActive() &&
 
 ### Complete RBAC System
 
-```
-# === Administrator ===
-role:admin, invoice, create
-role:admin, invoice, edit
-role:admin, invoice, delete
-role:admin, invoice, view
-role:admin, client, create
-role:admin, client, edit
-role:admin, client, delete
-role:admin, client, view
-
-# === Accountant ===
-role:accountant, invoice, view
-role:accountant, invoice, edit
-role:accountant, invoice, create
-role:accountant, client, view
-
-# === Sales ===
-role:sales, client, create
-role:sales, client, edit
-role:sales, client, view
-role:sales, invoice, view
-
-# === Manager ===
-role:manager, invoice, approve
-role:manager, invoice, view
-role:manager, client, view
+```json
+[
+  {"subject": "role:admin", "resource": "invoice", "action": "create", "effect": "allow"},
+  {"subject": "role:admin", "resource": "invoice", "action": "edit", "effect": "allow"},
+  {"subject": "role:admin", "resource": "invoice", "action": "delete", "effect": "allow"},
+  {"subject": "role:admin", "resource": "invoice", "action": "view", "effect": "allow"},
+  
+  {"subject": "role:accountant", "resource": "invoice", "action": "view", "effect": "allow"},
+  {"subject": "role:accountant", "resource": "invoice", "action": "edit", "effect": "allow"},
+  {"subject": "role:accountant", "resource": "invoice", "action": "create", "effect": "allow"},
+  
+  {"subject": "role:sales", "resource": "client", "action": "create", "effect": "allow"},
+  {"subject": "role:sales", "resource": "client", "action": "edit", "effect": "allow"},
+  {"subject": "role:sales", "resource": "client", "action": "view", "effect": "allow"},
+  {"subject": "role:sales", "resource": "invoice", "action": "view", "effect": "allow"},
+  
+  {"subject": "role:manager", "resource": "invoice", "action": "approve", "effect": "allow"},
+  {"subject": "role:manager", "resource": "invoice", "action": "view", "effect": "allow"}
+]
 ```
 
-### Ownership-Based Rules
+### Ownership Rules
 
 ```
 # Users can manage their own resources
-user:*, invoice, view, owner
-user:*, invoice, edit, owner
-user:*, invoice, delete, owner
-user:*, client, view, owner
-user:*, client, edit, owner
+user:*, invoice, view, owner, allow
+user:*, invoice, edit, owner, allow
+user:*, invoice, delete, owner, allow
+
+user:*, profile, view, owner, allow
+user:*, profile, edit, owner, allow
+
+user:*, document, view, owner, allow
+user:*, document, edit, owner, allow
+user:*, document, delete, owner, allow
 ```
 
-### Context-Aware Rules
+### Department-Based Access
 
-```
-# Department-specific access
-role:manager, invoice, approve, department==finance
-role:manager, invoice, approve, department==sales
-role:manager, report, view, department==finance
-
-# Status-based access
-role:accountant, invoice, edit, status!=paid
-role:accountant, invoice, edit, status!=approved
-role:editor, article, edit, status!=published
-
-# Time-based (with custom context)
-role:support, ticket, edit, business_hours==true
+```json
+[
+  {"subject": "role:manager", "resource": "invoice", "action": "approve", "condition": "department==finance", "effect": "allow"},
+  {"subject": "role:manager", "resource": "invoice", "action": "approve", "condition": "department==sales", "effect": "allow"},
+  {"subject": "role:manager", "resource": "report", "action": "view", "condition": "department==finance", "effect": "allow"},
+  {"subject": "role:manager", "resource": "budget", "action": "edit", "condition": "department==finance", "effect": "allow"}
+]
 ```
 
----
+### Status-Based Restrictions
 
-## Troubleshooting
-
-### Common Errors
-
-**Error: "Invalid subject format"**
 ```
-# Wrong
-admin, invoice, create
+# Accountants can only edit unpaid invoices
+role:accountant, invoice, edit, status!=paid, allow
+role:accountant, invoice, edit, status!=approved, allow
 
-# Correct
-role:admin, invoice, create
+# Editors cannot modify published articles
+role:editor, article, edit, status!=published, allow
+role:editor, article, delete, status!=published, allow
 ```
 
-**Error: "Missing required field"**
-```
-# Wrong - Missing action
-role:admin, invoice
+### Deny Rules for Restrictions
 
-# Correct
-role:admin, invoice, create
-```
-
-**Error: "Unsupported file format"**
-```php
-// Wrong extension
-$importer->importFromFile('policies.yaml');
-
-// Correct - Use .dsl, .txt, or .json
-$importer->importFromFile('policies.dsl');
-```
-
-### Debug Tips
-
-1. **Enable validation:**
-```php
-$validator = new DslValidator();
-$result = $validator->validate($parser, $content);
-var_dump($result->getErrors());
-```
-
-2. **Check parsed rules:**
-```php
-$rules = $parser->parse($content);
-var_dump($rules);
-```
-
-3. **Verify import:**
-```php
-$count = $importer->import($parser, $content);
-echo "Imported {$count} rules\n";
-var_dump($graph->getAllPermissions());
+```json
+[
+  {"subject": "role:admin", "resource": "invoice", "action": "*", "effect": "allow"},
+  {"subject": "role:admin", "resource": "invoice:999", "action": "delete", "effect": "deny"},
+  
+  {"subject": "role:intern", "resource": "invoice", "action": "view", "effect": "allow"},
+  {"subject": "role:intern", "resource": "invoice", "action": "delete", "effect": "deny"},
+  {"subject": "role:intern", "resource": "client", "action": "delete", "effect": "deny"},
+  
+  {"subject": "user:*", "resource": "system", "action": "*", "effect": "deny"}
+]
 ```
 
 ---
@@ -751,7 +1018,64 @@ var_dump($graph->getAllPermissions());
 ```php
 interface DslParserInterface
 {
+    /**
+     * @return array<array{subject: string, resource: string, action: string, condition: ?string, effect: string}>
+     */
     public function parse(string $content): array;
+}
+```
+
+### PolicySourceInterface
+
+```php
+interface PolicySourceInterface
+{
+    /**
+     * @return array<PolicyDefinition>
+     */
+    public function load(): array;
+}
+```
+
+### PolicyDefinition
+
+```php
+final class PolicyDefinition
+{
+    public string $subject;
+    public string $resource;
+    public string $action;
+    public ?string $condition;
+    public string $effect;
+
+    public function __construct(
+        string $subject,
+        string $resource,
+        string $action,
+        ?string $condition = null,
+        string $effect = 'allow'
+    );
+
+    public static function fromArray(array $data): self;
+    public function toArray(): array;
+}
+```
+
+### DslPolicySource
+
+```php
+class DslPolicySource implements PolicySourceInterface
+{
+    public function __construct(
+        DslParserInterface $parser,
+        ?DslValidator $validator = null,
+        ?string $content = null,
+        ?string $filePath = null
+    );
+
+    public function load(): array;
+    public function loadFromString(string $content): array;
+    public function loadFromFile(string $filePath): array;
 }
 ```
 
@@ -771,9 +1095,8 @@ class DslImporter
 ```php
 class DslExporter
 {
-    public function __construct(PermissionGraph $graph);
+    public function __construct(array $policies);
     public function export(string $format = 'json'): string;
-    public function exportToFile(string $filePath, string $format): bool;
 }
 ```
 
@@ -792,9 +1115,9 @@ class DslValidator
 class ValidationResult
 {
     public function isValid(): bool;
+    public function hasWarnings(): bool;
     public function getErrors(): array;
     public function getWarnings(): array;
-    public function hasWarnings(): bool;
     public function getErrorCount(): int;
     public function getWarningCount(): int;
 }
@@ -802,14 +1125,8 @@ class ValidationResult
 
 ---
 
-## Conclusion
+## Support
 
-The Authza DSL provides a powerful, flexible way to define authorization policies that:
-
-- ✅ Non-developers can understand and maintain
-- ✅ Supports complex authorization scenarios
-- ✅ Integrates seamlessly with PHP code
-- ✅ Can be version controlled and audited
-- ✅ Scales to large permission sets
-
-For questions or contributions, please see the main project README.
+- GitHub Issues: https://github.com/authza/authza/issues
+- Documentation: https://docs.authza.dev
+- See also: [CLI Documentation](CLI.md)

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Authza\Console;
 
 use Authza\Console\Helpers\OutputHelper;
+use Authza\DSL\DslExporter;
+use Authza\DSL\PolicyDefinition;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -71,8 +73,20 @@ class ExportCommand extends Command
                 }
             }
 
-            $parser = $this->container->getDSLParser();
-            $content = $parser->export($rules, $format);
+            // Convert rules to PolicyDefinition objects for export
+            $policies = array_map(
+                fn($rule) => new PolicyDefinition(
+                    $rule['subject'],
+                    $rule['resource'],
+                    $rule['action'],
+                    $rule['condition'] ?? null,
+                    $rule['effect'] ?? 'allow'
+                ),
+                $rules
+            );
+
+            $exporter = new DslExporter($policies);
+            $content = $exporter->export($format);
 
             if (file_put_contents($outputFile, $content) === false) {
                 $helper->error("Failed to write to file: {$outputFile}");
