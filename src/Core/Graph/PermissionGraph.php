@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Authza\Core\Graph;
 
 use Authza\Exceptions\RoleHierarchyCycleException;
+use Authza\Match\SubjectSpecificity;
 use Psr\SimpleCache\CacheInterface;
 
 /**
@@ -164,7 +165,7 @@ class PermissionGraph
         }
 
         $allowed = null;
-        foreach (array_keys($expanded) as $subjectId) {
+        foreach (SubjectSpecificity::sortBySpecificity(array_keys($expanded)) as $subjectId) {
             $result = $this->check((string) $subjectId, $action, $resourceType, $resourceId);
 
             if ($result === false) {

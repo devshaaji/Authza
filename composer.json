@@ -26,7 +26,8 @@
     },
     "autoload": {
         "psr-4": {
-            "Authza\\": "src/"
+            "Authza\\": "src/",
+            "Demo\\": "demo/src/"
         }
     },
     "autoload-dev": {
