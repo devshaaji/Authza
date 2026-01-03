@@ -1,28 +1,131 @@
 [
-    {
-      "subject": "role:admin",
-      "resource": "invoice",
-      "action": "create",
-      "effect": "allow"
-    },
-    {
-      "subject": "role:accountant",
-      "resource": "invoice",
-      "action": "edit",
-      "condition": "status!=paid",
-      "effect": "allow"
-    },
-    {
-      "subject": "user:*",
-      "resource": "invoice",
-      "action": "delete",
-      "condition": "owner",
-      "effect": "allow"
-    },
-    {
-      "subject": "role:intern",
-      "resource": "invoice",
-      "action": "delete",
-      "effect": "deny"
-    }
-  ]
+  {
+    "subject": "role:admin",
+    "resource": "invoice",
+    "action": "create",
+    "effect": "allow"
+  },
+  {
+    "subject": "role:accountant",
+    "resource": "invoice",
+    "action": "edit",
+    "condition": "status!=paid",
+    "effect": "allow"
+  },
+  {
+    "subject": "user:*",
+    "resource": "invoice",
+    "action": "delete",
+    "condition": "owner",
+    "effect": "allow"
+  },
+  {
+    "subject": "role:intern",
+    "resource": "invoice",
+    "action": "delete",
+    "effect": "deny"
+  },
+  {
+    "subject": "role:auditor",
+    "resource": "audit_log",
+    "action": "read",
+    "effect": "allow"
+  },
+  {
+    "subject": "role:auditor",
+    "resource": "audit_log",
+    "action": "delete",
+    "effect": "deny"
+  },
+  {
+    "subject": "role:manager",
+    "resource": "payment",
+    "action": "approve",
+    "condition": "amount<10000",
+    "effect": "allow"
+  },
+  {
+    "subject": "role:manager",
+    "resource": "payment",
+    "action": "approve",
+    "condition": "amount>=10000",
+    "effect": "deny"
+  },
+  {
+    "subject": "role:sales",
+    "resource": "crm_lead",
+    "action": "update",
+    "condition": "region=assigned",
+    "effect": "allow"
+  },
+  {
+    "subject": "role:sales",
+    "resource": "contract",
+    "action": "delete",
+    "effect": "deny"
+  },
+  {
+    "subject": "role:developer",
+    "resource": "api_key",
+    "action": "rotate",
+    "condition": "environment=staging",
+    "effect": "allow"
+  },
+  {
+    "subject": "role:developer",
+    "resource": "production_db",
+    "action": "drop_table",
+    "effect": "deny"
+  },
+  {
+    "subject": "role:hr",
+    "resource": "employee_record",
+    "action": "view_salary",
+    "effect": "allow"
+  },
+  {
+    "subject": "role:interviewer",
+    "resource": "employee_record",
+    "action": "view_salary",
+    "effect": "deny"
+  },
+  {
+    "subject": "user:system_bot",
+    "resource": "daily_report",
+    "action": "generate",
+    "condition": "time=midnight",
+    "effect": "allow"
+  },
+  {
+    "subject": "role:support",
+    "resource": "user_ticket",
+    "action": "close",
+    "condition": "resolution_provided",
+    "effect": "allow"
+  },
+  {
+    "subject": "role:support",
+    "resource": "billing_settings",
+    "action": "update",
+    "effect": "deny"
+  },
+  {
+    "subject": "role:marketing",
+    "resource": "email_campaign",
+    "action": "send",
+    "condition": "approval_status=signed_off",
+    "effect": "allow"
+  },
+  {
+    "subject": "role:viewer",
+    "resource": "*",
+    "action": "write",
+    "effect": "deny"
+  },
+  {
+    "subject": "role:viewer",
+    "resource": "*",
+    "action": "read",
+    "effect": "allow"
+  }
+]

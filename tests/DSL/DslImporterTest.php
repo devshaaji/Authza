@@ -32,8 +32,8 @@ class DslImporterTest extends TestCase
 
         $this->assertEquals(2, $count);
         // DSL "role:admin" becomes subjectId "admin", resource "invoice" becomes resourceType "invoice", resourceId "*"
-        $this->assertTrue($this->graph->check('admin', 'create', 'invoice', '*'));
-        $this->assertTrue($this->graph->check('accountant', 'view', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('role:admin', 'create', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('role:accountant', 'view', 'invoice', '*'));
     }
 
     public function testImportJsonDsl(): void
@@ -47,8 +47,8 @@ class DslImporterTest extends TestCase
         $count = $this->importer->import($parser, $json);
 
         $this->assertEquals(2, $count);
-        $this->assertTrue($this->graph->check('admin', 'create', 'invoice', '*'));
-        $this->assertTrue($this->graph->check('accountant', 'view', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('role:admin', 'create', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('role:accountant', 'view', 'invoice', '*'));
     }
 
     public function testImportEmptyContent(): void
@@ -68,7 +68,7 @@ class DslImporterTest extends TestCase
 
         $this->assertEquals(1, $count);
         // user:42 becomes subjectId "42", invoice:123 becomes resourceType "invoice", resourceId "123"
-        $this->assertTrue($this->graph->check('42', 'delete', 'invoice', '123'));
+        $this->assertTrue($this->graph->check('user:42', 'delete', 'invoice', '123'));
     }
 
     public function testImportFromFileJson(): void
@@ -80,7 +80,7 @@ class DslImporterTest extends TestCase
         $count = $this->importer->importFromFile($filePath);
 
         $this->assertEquals(1, $count);
-        $this->assertTrue($this->graph->check('admin', 'create', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('role:admin', 'create', 'invoice', '*'));
 
         unlink($filePath);
     }
@@ -94,8 +94,8 @@ class DslImporterTest extends TestCase
         $count = $this->importer->importFromFile($filePath);
 
         $this->assertEquals(2, $count);
-        $this->assertTrue($this->graph->check('admin', 'create', 'invoice', '*'));
-        $this->assertTrue($this->graph->check('accountant', 'view', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('role:admin', 'create', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('role:accountant', 'view', 'invoice', '*'));
 
         unlink($filePath);
     }
@@ -109,7 +109,7 @@ class DslImporterTest extends TestCase
         $count = $this->importer->importFromFile($filePath);
 
         $this->assertEquals(1, $count);
-        $this->assertTrue($this->graph->check('admin', 'create', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('role:admin', 'create', 'invoice', '*'));
 
         unlink($filePath);
     }
@@ -152,9 +152,9 @@ DSL;
 
         $this->assertEquals(5, $count);
         // Verify a few permissions
-        $this->assertTrue($this->graph->check('admin', 'create', 'invoice', '*'));
-        $this->assertTrue($this->graph->check('admin', 'edit', 'invoice', '*'));
-        $this->assertTrue($this->graph->check('accountant', 'view', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('role:admin', 'create', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('role:admin', 'edit', 'invoice', '*'));
+        $this->assertTrue($this->graph->check('role:accountant', 'view', 'invoice', '*'));
     }
 
     public function testImportInvalidDslThrowsException(): void
@@ -175,8 +175,8 @@ DSL;
             $count = $this->importer->importFromFile($exampleFile);
             
             $this->assertGreaterThan(0, $count);
-            $this->assertTrue($this->graph->check('admin', 'create', 'invoice', '*'));
-            $this->assertTrue($this->graph->check('accountant', 'view', 'invoice', '*'));
+            $this->assertTrue($this->graph->check('role:admin', 'create', 'invoice', '*'));
+            $this->assertTrue($this->graph->check('role:accountant', 'view', 'invoice', '*'));
         } else {
             $this->markTestSkipped('Example file not found');
         }

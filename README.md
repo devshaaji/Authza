@@ -28,7 +28,7 @@ A modern, plug-and-play **authorization engine for PHP** designed to be **scalab
 - ✅ `authorize()` and `can()` methods for policy evaluation
 - ✅ Class-based policies per resource (e.g., `InvoicePolicy`)
 - ✅ Hybrid ABAC + RBAC + relationship-based checks
-- ✅ Precomputed **PermissionGraph** for fast decision lookups
+- ✅ Precomputed **PermissionGraph** for fast decision lookups (graph caching only)
 - ✅ Allow/Deny rules with conflict resolution
 
 ### DSL Support
@@ -39,13 +39,12 @@ A modern, plug-and-play **authorization engine for PHP** designed to be **scalab
 - ✅ `PolicyDefinition` DTO as canonical format
 
 ### Standards Compliance
-- ✅ PSR-16 cache integration (Redis, APCu, File, Array)
+- ✅ PSR-16 cache integration (Redis, APCu, File, Array) — optional
 - ✅ PSR-3 compliant logging for audit and debugging
 
 ### Developer Experience
 - ✅ CLI tools for policy management
-- ✅ Auto-discovery of policies
-- ✅ Framework adapters (Laravel, Slim, Symfony)
+- ✅ Framework-agnostic, simple API
 - ✅ Comprehensive test suite
 
 ---
@@ -75,11 +74,11 @@ use Authza\Core\Authorization;
 use Authza\Core\PolicyRegistry;
 use Authza\Policies\InvoicePolicy;
 
-// Create registry and register policies
+// Create registry and register policies explicitly
 $registry = new PolicyRegistry();
 $registry->register('invoice', new InvoicePolicy());
 
-// Create authorization instance
+// Create authorization instance (cache optional)
 $authz = new Authorization($registry);
 
 // Check permissions
@@ -123,18 +122,25 @@ $importer = new DslImporter($graph);
 $importer->importFromFile('policies.json');
 ```
 
-### 3. Quick Start with Defaults
+### 3. Quick Start (explicit config)
 
 ```php
 <?php
 use Authza\Core\Authorization;
+use Authza\Core\PolicyRegistry;
 
-$authz = Authorization::quickStart([
-    'cache' => $redisCache,           // PSR-16 cache
-    'logger' => $logger,              // PSR-3 logger
-    'policyNamespace' => 'App\\Policies',
-    'policyDirectory' => __DIR__ . '/Policies'
-]);
+$registry = new PolicyRegistry();
+// Register your policies explicitly
+$registry->register('invoice', new \App\Policies\InvoicePolicy());
+$registry->register('user', new \App\Policies\UserPolicy());
+
+// Optional: provide PSR-16 cache and PSR-3 logger
+$cache = null; // or new \Authza\Adapters\Cache\FileCache(__DIR__ . '/var/cache/authza');
+$logger = null; // or a PSR-3 logger instance
+
+$graph = $cache ? new \Authza\Core\Graph\PermissionGraph($cache) : null; // graph caching only
+
+$authz = new Authorization($registry, $cache, $logger, $graph);
 
 if ($authz->can($user, 'edit', $invoice)) {
     // Allowed
@@ -145,32 +151,28 @@ if ($authz->can($user, 'edit', $invoice)) {
 
 ## Core Concepts
 
-### Subjects
+### Subjects are Application-defined
 
-Subjects represent **who** is requesting access. Implement `SubjectInterface`:
+Authza does not impose a role model. Subjects (users, roles, service principals, etc.) are opaque, application-defined identifiers. The engine only evaluates:
 
-```php
-<?php
-use Authza\Interfaces\SubjectInterface;
-
-class User implements SubjectInterface
-{
-    public function getId(): string|int
-    {
-        return $this->id;
-    }
-
-    public function getRoles(): array
-    {
-        return $this->roles; // ['admin', 'accountant']
-    }
-}
+```
+subject → action → resource → decision
 ```
 
-**DSL Subject Formats:**
-- `role:admin` - Role-based subject
-- `user:42` - Specific user by ID
-- `user:*` - Any user (wildcard)
+Examples like `role:admin` or `tenant:42:role:billing_admin` are illustrative, not prescriptive. Use any naming scheme that fits your domain.
+
+> The examples in this documentation demonstrate capabilities, not recommended role structures.
+
+### PermissionGraph is a Decision Cache
+
+The PermissionGraph caches compiled rules for fast lookups. It does not define roles; it stores decisions like:
+
+```
+"role:admin:create:invoice:*" => true
+"role:intern:delete:invoice:*" => false
+```
+
+Only the graph is cached. Individual `can()` results are evaluated fresh each call to avoid staleness.
 
 ### Resources
 
@@ -383,7 +385,7 @@ Authza
 │   ├── Authorization.php          # Main entry point (can, authorize)
 │   ├── PolicyRegistry.php         # Maps resources → policies + DSL sources
 │   └── Graph/
-│       └── PermissionGraph.php    # Precomputed permission lookups
+│       └── PermissionGraph.php    # Precomputed permission lookups (cached)
 │
 ├── DSL/                           # Domain-Specific Language
 │   ├── PolicyDefinition.php       # Canonical DTO format
@@ -437,7 +439,7 @@ authorize($user, $action, $resource, $context)
    ↓
 ┌─────────────────────────────────────┐
 │         PermissionGraph             │
-│  (Precomputed fast lookups)         │
+│  (Precomputed fast lookups; cached) │
 │                                     │
 │   ┌─────────────┐ ┌─────────────┐   │
 │   │ PHP Policies│ │ DSL Policies│   │
@@ -448,7 +450,7 @@ authorize($user, $action, $resource, $context)
 │                    DSL Parser       │
 └─────────────────────────────────────┘
    ↓
-Result (allow/deny) + Caching + Logging
+Result (allow/deny) + Logging (no result caching)
 ```
 
 ---

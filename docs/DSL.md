@@ -216,6 +216,8 @@ final class PolicyDefinition
 
 Subjects identify **who** is requesting access.
 
+> **Important Security Note:** Subject identifiers preserve their type prefix (`role:` or `user:`) internally to prevent authorization bypass. This ensures that a user with ID `developer` cannot accidentally gain permissions meant for `role:developer`. The system stores and checks permissions using the full prefixed identifier (e.g., `role:developer:create:invoice:*`).
+
 ### Role-Based Subject
 
 Format: `role:ROLE_NAME`

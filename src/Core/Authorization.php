@@ -64,8 +64,13 @@ class Authorization
 
         // Check permission graph first (fastest)
         if ($this->graph !== null) {
-            // Build list of subject identifiers: user ID + all roles
-            $subjectIds = array_merge([$subjectId], $subject->getRoles());
+            // Build list of subject identifiers with proper prefixes:
+            // - user:<id> for the user's ID
+            // - role:<name> for each role
+            $subjectIds = ['user:' . $subjectId];
+            foreach ($subject->getRoles() as $role) {
+                $subjectIds[] = 'role:' . $role;
+            }
             
             // Single optimized call checks all subjects with proper deny precedence
             $graphResult = $this->graph->checkMultiple($subjectIds, $action, $resourceType, $resourceId);
@@ -73,19 +78,6 @@ class Authorization
             if ($graphResult !== null) {
                 $this->log($graphResult, $subject, $action, $resource, $context, 'graph');
                 return $graphResult;
-            }
-        }
-
-        // Check cache for decision
-        $cacheKey = $this->makeCacheKey($subjectId, $action, $resourceType, $resourceId);
-        
-        if ($this->cache !== null) {
-            $cached = $this->cache->get($cacheKey);
-            
-            if ($cached !== null) {
-                $result = (bool)$cached;
-                $this->log($result, $subject, $action, $resource, $context, 'cache');
-                return $result;
             }
         }
 
@@ -97,16 +89,11 @@ class Authorization
             return false;
         }
 
-        $result = $policy->can($subject, $action, $resource, $context);
+        $allowed = $policy->can($subject, $action, $resource, $context);
 
-        // Cache the decision
-        if ($this->cache !== null) {
-            $this->cache->set($cacheKey, $result, self::CACHE_TTL);
-        }
+        $this->log($allowed, $subject, $action, $resource, $context, 'policy');
 
-        $this->log($result, $subject, $action, $resource, $context, 'policy');
-
-        return $result;
+        return $allowed;
     }
 
     /**
@@ -148,26 +135,14 @@ class Authorization
 
         $registry = new PolicyRegistry();
 
-        // Auto-discover policies if configuration is provided
-        if (isset($config['policyNamespace']) && isset($config['policyDirectory'])) {
-            $registry->autoDiscover($config['policyNamespace'], $config['policyDirectory']);
+        // Register explicit policies if provided
+        if (isset($config['policies']) && is_array($config['policies'])) {
+            foreach ($config['policies'] as $resourceType => $policy) {
+                $registry->register($resourceType, $policy);
+            }
         }
 
         return new self($registry, $cache, $logger, $graph);
-    }
-
-    /**
-     * Make a cache key for an authorization decision
-     *
-     * @param string $subjectId Subject identifier
-     * @param string $action Action
-     * @param string $resourceType Resource type
-     * @param string $resourceId Resource identifier
-     * @return string Cache key
-     */
-    private function makeCacheKey(string $subjectId, string $action, string $resourceType, string $resourceId): string
-    {
-        return "authz:{$subjectId}:{$action}:{$resourceType}:{$resourceId}";
     }
 
     /**

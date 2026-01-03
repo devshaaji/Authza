@@ -9,6 +9,7 @@ Complete guide to using the Authza Command-Line Interface for managing authoriza
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Commands Reference](#commands-reference)
+  - [init](#init)
   - [import](#import)
   - [export](#export)
   - [validate](#validate)
@@ -57,48 +58,232 @@ composer global require authza/authza
 
 ## Configuration
 
-### Configuration File
+The CLI requires a configuration file to operate. Both the CLI and your application code use the **same configuration file**, ensuring consistent behavior.
 
-Create an `authza_config.php` file in your project root:
+### Creating Configuration
+
+Use the `init` command to create a configuration file:
+
+```bash
+./vendor/bin/authza init
+```
+
+This creates `authza.config.php` in your current directory and **remembers the config path** for future commands.
+
+### Config Path Resolution
+
+After running `init`, the CLI remembers your config path in a `.authza` file. You can then run commands without specifying `--config`:
+
+```bash
+# First time: initialize config
+./vendor/bin/authza init
+
+# Subsequent commands: no --config needed!
+./vendor/bin/authza list
+./vendor/bin/authza stats
+./vendor/bin/authza check --user=1 --resource=invoice:1 --action=view
+```
+
+### Configuration Resolution Order
+
+| Priority | Method | Description |
+|----------|--------|-------------|
+| 1 | `--config` option | Explicit path via CLI argument |
+| 2 | `AUTHZA_CONFIG` env | Environment variable |
+| 3 | `.authza` file | Remembered path from `init` command |
+
+### Re-initializing
+
+If you run `init` again when a config is already set up, you'll be prompted to confirm:
+
+```bash
+$ ./vendor/bin/authza init
+⚠ A configuration is already set up: /path/to/authza.config.php
+
+Do you want to replace it with a new configuration? [y/N]
+```
+
+Use `--force` to skip the confirmation:
+
+```bash
+./vendor/bin/authza init --force
+```
+
+### Explicit Config (Production)
+
+For production environments, you may prefer explicit config specification:
+
+```bash
+# Using --config option
+./vendor/bin/authz --config=/path/to/authza.config.php list
+
+# Using environment variable
+export AUTHZA_CONFIG=/path/to/authza.config.php
+./vendor/bin/authz list
+```
+
+### Configuration File Structure
 
 ```php
 <?php
+// authza.config.php
+
+use Authza\Adapters\Cache\ArrayCache;
+use Authza\Adapters\Cache\FileCache;
+use App\Policies\UserPolicy;
+use App\Policies\InvoicePolicy;
+
 return [
+    /**
+     * Cache Configuration (PSR-16 SimpleCache) - Optional
+     * 
+     * If not provided, policies are evaluated directly without caching.
+     * For production, providing a cache improves performance.
+     */
     'cache' => [
-        'adapter' => 'file',           // file, redis, apcu, array
-        'path' => __DIR__ . '/cache'
+        // 'instance' => new ArrayCache(),
+        // 'instance' => new FileCache(__DIR__ . '/var/cache/authza'),
+        // 'instance' => new \App\Cache\RedisCache($redis),
     ],
+
+    /**
+     * Logger Configuration (PSR-3 Logger) - Optional
+     * 
+     * If not provided, a NullLogger is used.
+     */
+    'logger' => [
+        // 'instance' => $monologLogger,
+    ],
+
+    /**
+     * Permission Graph Storage
+     */
     'graph' => [
-        'storage' => __DIR__ . '/storage/graph.json'
+        'storage' => __DIR__ . '/var/storage/authza_graph.json',
     ],
+
+    /**
+     * PHP Policy Classes (Explicit Registration)
+     * 
+     * SECURITY: All policies must be explicitly registered.
+     * No auto-discovery to prevent loading malicious code.
+     */
     'policies' => [
-        'namespace' => 'App\\Policies',
-        'path' => __DIR__ . '/src/Policies'
-    ]
+        'register' => [
+            'user' => UserPolicy::class,
+            'invoice' => InvoicePolicy::class,
+            // Or with dependencies:
+            'document' => new \App\Policies\DocumentPolicy($dependency),
+        ],
+    ],
+
+    /**
+     * DSL Policy Files (Explicit List)
+     * 
+     * SECURITY: All DSL files must be explicitly listed.
+     */
+    'dsl' => [
+        'files' => [
+            __DIR__ . '/rules/rbac.json',
+            __DIR__ . '/rules/permissions.dsl',
+        ],
+    ],
+
+    /**
+     * Bootstrap Callback (Optional)
+     */
+    'bootstrap' => function(\Authza\Console\ServiceContainer $container) {
+        // Custom initialization
+    },
 ];
 ```
 
+### Security Best Practices
+
+> **⚠️ Important Security Notes:**
+> 
+> 1. **No Policy Auto-Discovery**: Policy classes must be explicitly registered in `policies.register` to prevent loading malicious code.
+> 
+> 2. **Explicit DSL Files**: All DSL rule files must be explicitly listed in `dsl.files`.
+> 
+> 3. **Explicit Config Path**: Always use `--config` option or `AUTHZA_CONFIG` environment variable.
+
 ### Environment Variables
 
-Alternatively, use environment variables:
+Override configuration with environment variables:
 
-```bash
-export AUTHZA_CACHE_ADAPTER=file
-export AUTHZA_CACHE_PATH=/var/cache/authza
-export AUTHZA_GRAPH_STORAGE=/var/lib/authza/graph.json
-export AUTHZA_POLICY_NAMESPACE=App\\Policies
+| Variable | Config Key | Description |
+|----------|------------|-------------|
+| `AUTHZA_CONFIG` | - | Path to config file (required) |
+| `AUTHZA_GRAPH_STORAGE` | `graph.storage` | Graph storage file path |
+| `AUTHZA_DSL_FILES` | `dsl.files` | Comma-separated DSL file paths |
+
+> **Note:** Cache and logger must be provided via config file - they cannot be set via environment variables.
+
+### Using the Same Config in Application Code
+
+```php
+<?php
+use Authza\Core\AuthzaFactory;
+use Authza\Adapters\Cache\ArrayCache;
+use Authza\Adapters\Cache\FileCache;
+
+// Option 1: Explicit config file path (recommended)
+$authz = AuthzaFactory::createFromFile(__DIR__ . '/authza.config.php');
+
+// Option 2: From array (cache instance is OPTIONAL)
+$authz = AuthzaFactory::create([
+    'cache' => [
+        'instance' => new FileCache('/tmp/authza_cache'),
+    ],
+    'policies' => [
+        'register' => [
+            'invoice' => \App\Policies\InvoicePolicy::class,
+        ],
+    ],
+    'dsl' => ['files' => [__DIR__ . '/rules.json']],
+]);
+
+// Now use the same Authorization instance as CLI
+if ($authz->can($user, 'edit', $invoice)) {
+    // Allowed
+}
 ```
-
-### Precedence
-
-1. Command-line options (highest)
-2. Environment variables
-3. Configuration file
-4. Default values (lowest)
 
 ---
 
 ## Commands Reference
+
+### init
+
+Initialize a new Authza configuration file.
+
+**Usage:**
+```bash
+authz init [--output=<path>] [--force]
+```
+
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--output` | `-o` | Output file path (default: `authza.config.php`) |
+| `--force` | `-f` | Overwrite existing configuration file |
+
+**Examples:**
+
+```bash
+# Create default config file
+authz init
+
+# Create config in specific location
+authz init --output=config/authza.php
+
+# Overwrite existing config
+authz init --force
+```
+
+---
 
 ### import
 

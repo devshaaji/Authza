@@ -64,49 +64,6 @@ class PolicyRegistry
     }
 
     /**
-     * Auto-discover policies in a directory
-     *
-     * @param string $namespace The namespace for the policies
-     * @param string $directory The directory to scan for policy files
-     * @return void
-     */
-    public function autoDiscover(string $namespace, string $directory): void
-    {
-        if (!is_dir($directory)) {
-            return;
-        }
-
-        $files = glob($directory . '/*Policy.php');
-        
-        if ($files === false) {
-            return;
-        }
-
-        foreach ($files as $file) {
-            $className = basename($file, '.php');
-            $fullClassName = rtrim($namespace, '\\') . '\\' . $className;
-
-            if (!class_exists($fullClassName)) {
-                continue;
-            }
-
-            $policy = new $fullClassName();
-
-            if (!$policy instanceof PolicyInterface) {
-                continue;
-            }
-
-            // Try to infer resource type from class name
-            // e.g., UserPolicy -> user, InvoicePolicy -> invoice
-            $resourceType = strtolower(str_replace('Policy', '', $className));
-            
-            if ($policy->supports($resourceType)) {
-                $this->register($resourceType, $policy);
-            }
-        }
-    }
-
-    /**
      * Register a policy source and immediately load its policies
      *
      * @param PolicySourceInterface $source The policy source to register
